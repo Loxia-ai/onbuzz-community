@@ -1,0 +1,182 @@
+<div align="center">
+
+# OnBuzz Community
+
+**Run a fleet of autonomous AI agents on your own machine.**
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg?style=flat-square)](https://nodejs.org)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](./CONTRIBUTING.md)
+
+[Quick Start](#-quick-start) · [What it does](#-what-it-does) · [Why it's different](#-why-its-different) · [Use cases](#-example-use-cases) · [Contribute](#-contributing)
+
+</div>
+
+---
+
+## What it does
+
+OnBuzz Community is an open-source platform for **running and orchestrating multiple AI agents locally**. Each agent has its own workspace, tools, and conversation history, and they can talk to each other to solve bigger problems together.
+
+It's the same engine that powers Loxia's commercial Autopilot product, re-released under Apache-2.0 with **all server dependencies removed**. You bring your own provider keys; OnBuzz talks to OpenAI / Anthropic / Gemini / xAI / Ollama directly. Nothing flows through anyone else's servers.
+
+It runs as a local app with two interfaces:
+- A **web UI** in your browser (the default) — chat, agent management, flows, scheduled tasks.
+- A **terminal UI** — the same thing in a TUI for keyboard-driven workflows.
+
+---
+
+## Why it's different
+
+Most "AI assistant" tools are either a single chat window with a prompt, or a closed cloud product where your data lives on someone else's infrastructure. OnBuzz Community is built on three opinionated choices:
+
+**1. Local-first and zero-cloud by design.**
+There is no central backend. There is no telemetry. Your conversations, agents, attachments, and credentials live in `~/.local/share/onbuzz` (or your platform's equivalent). Disconnect your machine from the internet and Ollama-backed agents keep working.
+
+**2. Multi-agent, not single-chat.**
+Agents are first-class. Each has a name, a system prompt, a working directory, and a configurable subset of tools. A "Coder" agent and a "Reviewer" agent can collaborate on the same repo in parallel, send each other messages, hand off tasks, and you can watch the whole thing run.
+
+**3. Bring your own keys, plug in any provider.**
+Five providers ship out of the box — OpenAI, Anthropic, Gemini, xAI, and Ollama. You can also wire any OpenAI-compatible endpoint (OpenRouter, Together, Fireworks, Groq, vLLM, LiteLLM, Azure OpenAI, self-hosted vLLM…) with a base URL and a key. The model catalog is auto-discovered from each vendor's `/models` endpoint, so new releases show up automatically.
+
+It also ships with **20+ built-in agent tools** for real software work:
+
+| | |
+|---|---|
+| **Code & files** | terminal, filesystem, file tree, code search (seek), file content replace |
+| **Code analysis** | import analyzer, dependency resolver, static analysis (ESLint/Prettier/TS/Stylelint), clone detection, code map |
+| **Web** | Puppeteer-driven browser, web fetch, scrape, screenshot |
+| **Documents** | PDF, DOCX, XLSX read/write |
+| **Coordination** | task manager, agent-to-agent messaging, agent delays, job-done signaling |
+| **Authoring** | persistent memory, skills (reusable agent recipes), user prompts, visual editor |
+| **Integrations** | Discord / Telegram / WhatsApp bridges (BYO bot tokens, all optional) |
+| **Scheduling** | cron-like recurring tasks and flow runs |
+
+---
+
+## 🚀 Quick start
+
+### 1. Install
+
+```bash
+npm install -g onbuzz-community
+```
+
+(Requires Node.js ≥ 20.)
+
+### 2. Add a provider key
+
+Either:
+- Run `onbuzz web`, open Settings, paste a key from any of: OpenAI / Anthropic / Gemini / xAI; **or**
+- Install [Ollama](https://ollama.com) and `ollama pull llama3.1:8b` for fully-offline use (no key needed).
+
+### 3. Start chatting
+
+```bash
+onbuzz web
+```
+
+Your browser opens, you create your first agent, send a message — done. From there you can spin up more agents, give them their own working directories, and let them collaborate.
+
+> Prefer the terminal? `onbuzz plus-terminal` starts the server and a TUI together.
+
+---
+
+## 💡 Example use cases
+
+People use OnBuzz Community for things like:
+
+- **Coding tasks at scale** — give an agent a repo and a goal ("audit my dependencies for vulnerabilities and open PRs") and let it work autonomously while you do something else.
+- **Research workflows** — multi-agent flows where one agent gathers sources, another summarizes, another fact-checks.
+- **Document pipelines** — extract structured data from a folder of PDFs, generate Excel reports, write a DOCX summary.
+- **Personal knowledge work** — long-running agents with persistent memory that learn your preferences and codebase over weeks.
+- **Bot orchestration** — wire agents to Discord/Telegram/WhatsApp so your team or community can address them naturally.
+- **Local privacy-first AI** — using Ollama, run everything on your laptop. Sensitive client work never leaves the machine.
+- **Provider experimentation** — run the same prompt across GPT-5, Claude Opus, Gemini, Grok, and a local Llama in parallel. Compare cost, latency, quality.
+
+---
+
+## 🧱 Repository structure
+
+```
+onbuzz-community/
+├── bin/                    CLI entry point (the `onbuzz` command)
+├── config/                 Default model + benchmark manifests (override-friendly)
+├── docs/                   Provider setup, architecture, contribution guides
+├── electron/               Optional Electron desktop app shell
+├── installer/              NSIS / PKG / DEB installer scripts
+├── scripts/                Build + maintenance helpers
+├── skills/                 Bundled example skills (e.g. web-game-dev)
+├── src/
+│   ├── core/               Orchestrator, agent pool, scheduler, flow executor
+│   ├── interfaces/         HTTP/WebSocket server + terminal UI client
+│   ├── services/
+│   │   ├── providers/      LLM provider adapters (one per vendor)
+│   │   ├── aiService.js    Dispatcher that routes to providers
+│   │   └── …               Models, benchmarks, scheduling, memory, etc.
+│   ├── tools/              Agent-facing tools (terminal, filesystem, web, …)
+│   └── utilities/          Shared helpers
+├── web-ui/                 React frontend (Vite-built)
+└── .github/                CI workflows + issue templates
+```
+
+The high-level flow is: **Web/Terminal UI** → WebSocket → **Orchestrator** → **Agent Pool & Scheduler** → **Message Processor** → **AIService** → **Provider Registry** → vendor API.
+
+---
+
+## 🔧 Configuration
+
+Most things just work. A few env vars are useful:
+
+| Variable | Purpose |
+|---|---|
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY` | Provider keys (or paste in Settings UI) |
+| `OLLAMA_HOST` | Ollama daemon URL (default `http://127.0.0.1:11434`) |
+| `LOXIA_PORT` / `LOXIA_HOST` | Web server port and host |
+| `LOXIA_LOG_LEVEL` | `debug` / `info` / `warn` / `error` |
+| `LOXIA_MODELS_PATH` | Override the default model manifest with a custom JSON file |
+| `LOXIA_BENCHMARKS_PATH` | Override the routing-benchmark text |
+
+User overrides also work without env vars: drop `~/.onbuzz/models.json` or `~/.onbuzz/benchmarks.json` and OnBuzz will pick them up.
+
+For per-provider details (auth headers, special models, OpenAI-compatible custom endpoints), see [`docs/PROVIDERS.md`](./docs/PROVIDERS.md).
+
+---
+
+## 🤝 Contributing
+
+OnBuzz Community is open to contributions of every size — bug fixes, new tools, new provider adapters, docs, examples, or "I tried this and the install was confusing" feedback.
+
+Start here: **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+
+Looking for a first thing to work on? We've curated a handful of good-first-issues in [`docs/GOOD_FIRST_ISSUES.md`](./docs/GOOD_FIRST_ISSUES.md). They're real, scoped pieces of work — pick one, comment on the matching issue, and we'll help you get it merged.
+
+If you find a security issue, please don't file a public issue — email `contact@loxia.ai` instead.
+
+---
+
+## 🔒 Privacy
+
+- **Local-first** — your conversation history, agent state, attachments, and all generated artifacts stay on your machine.
+- **No telemetry** — OnBuzz Community does not phone home. The only outbound network calls are to the LLM provider you configure.
+- **Encrypted credentials** — API keys are stored AES-256-GCM-encrypted under your user-data directory, derived from a machine-specific identifier.
+- **Easy reset** — delete the user-data directory to wipe all local state.
+
+---
+
+## 📄 License
+
+[Apache License 2.0](./LICENSE) — see also [NOTICE](./NOTICE).
+
+Copyright © 2025–2026 Loxia Labs LLC and OnBuzz Community contributors.
+
+OnBuzz Community is forked from the proprietary Loxia Autopilot codebase. The commercial Autopilot product continues separately, with hosted models, a marketplace, and managed updates. If you want those things, see [autopilot.loxia.ai](https://autopilot.loxia.ai). If you want to run agents yourself, with your keys, on your hardware, with full source access — you're in the right place.
+
+---
+
+<div align="center">
+
+**Made with care, shipped under Apache-2.0.**
+[Discussions](https://github.com/Loxia-ai/onbuzz-community/discussions) · [Issues](https://github.com/Loxia-ai/onbuzz-community/issues) · [Provider docs](./docs/PROVIDERS.md)
+
+</div>

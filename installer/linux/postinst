@@ -1,0 +1,25 @@
+#!/bin/bash
+# Loxia Autopilot One - Linux Post-installation Script
+
+set -e
+
+INSTALL_DIR="/usr/lib/loxia"
+BIN_DIR="/usr/bin"
+
+# Create symlink for the loxia command
+ln -sf "$INSTALL_DIR/loxia" "$BIN_DIR/loxia"
+
+# Make binary executable
+chmod +x "$INSTALL_DIR/loxia"
+
+echo "Loxia Autopilot One installed successfully!"
+echo ""
+echo "Available commands:"
+echo "  loxia web        - Start server and open Web UI"
+echo "  loxia terminal   - Start Terminal UI"
+echo "  loxia serve      - Start server only (headless)"
+echo "  loxia --help     - Show all commands"
+echo ""
+echo "To get started, run: loxia web"
+
+exit 0

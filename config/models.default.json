@@ -1,0 +1,45 @@
+{
+  "_comment": "Default model manifest shipped with OnBuzz Community. Override with ~/.onbuzz/models.json or LOXIA_MODELS_PATH env var. Live provider /models endpoints take precedence on availability — entries here only survive if a provider returns no live data (e.g. Anthropic). Every entry should have `chat: true` if it's a chat-completion model. Set chat:false to surface a model in the catalog without offering it in the agent picker.",
+  "models": [
+    {
+      "name": "claude-opus-4-7",
+      "provider": "anthropic",
+      "displayName": "Claude Opus 4.7",
+      "contextWindow": 200000,
+      "maxTokens": 32000,
+      "chat": true,
+      "supportsTools": true,
+      "supportsVision": true,
+      "reasoning": true,
+      "tier": "premium",
+      "recommended_for": ["general", "tools", "code", "long-context"],
+      "pricing": { "input": 15, "output": 75 }
+    },
+    {
+      "name": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "displayName": "Claude Sonnet 4.6",
+      "contextWindow": 200000,
+      "maxTokens": 16384,
+      "chat": true,
+      "supportsTools": true,
+      "supportsVision": true,
+      "tier": "balanced",
+      "recommended_for": ["general", "tools", "code"],
+      "pricing": { "input": 3, "output": 15 }
+    },
+    {
+      "name": "claude-haiku-4-5",
+      "provider": "anthropic",
+      "displayName": "Claude Haiku 4.5",
+      "contextWindow": 200000,
+      "maxTokens": 8192,
+      "chat": true,
+      "supportsTools": true,
+      "supportsVision": true,
+      "tier": "budget",
+      "recommended_for": ["fast", "tools"],
+      "pricing": { "input": 0.8, "output": 4 }
+    }
+  ]
+}

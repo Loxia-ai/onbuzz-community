@@ -1,0 +1,463 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme color variables (space-separated RGB for Tailwind opacity support) */
+:root {
+  /* Gray palette — Tailwind defaults */
+  --gray-50:  249 250 251;
+  --gray-100: 243 244 246;
+  --gray-200: 229 231 235;
+  --gray-300: 209 213 219;
+  --gray-400: 156 163 175;
+  --gray-500: 107 114 128;
+  --gray-600: 75 85 99;
+  --gray-700: 55 65 81;
+  --gray-800: 31 41 55;
+  --gray-900: 17 24 39;
+  --gray-950: 3 7 18;
+
+  /* Loxia accent palette — sky blue defaults */
+  --loxia-50:  240 249 255;
+  --loxia-100: 224 242 254;
+  --loxia-200: 186 230 253;
+  --loxia-300: 125 211 252;
+  --loxia-400: 56 189 248;
+  --loxia-500: 14 165 233;
+  --loxia-600: 2 132 199;
+  --loxia-700: 3 105 161;
+  --loxia-800: 7 89 133;
+  --loxia-900: 12 74 110;
+
+  /* Task status palette — semantic colors for task states */
+  --task-completed: 16 185 129;    /* emerald-500 */
+  --task-completed-bg: 236 253 245; /* emerald-50 */
+  --task-blocked: 245 158 11;      /* amber-500 */
+  --task-blocked-bg: 255 251 235;  /* amber-50 */
+}
+
+/* Red Team theme — cyber red/black aesthetic */
+.theme-redteam {
+  /* Gray scale with subtle red warmth.
+     Light end (100-400) = text in dark mode → must stay light/readable.
+     Dark end (700-950) = backgrounds/borders in dark mode → deep red-tinted black. */
+  --gray-50:  252 245 245;
+  --gray-100: 240 230 230;
+  --gray-200: 220 208 208;
+  --gray-300: 195 180 180;
+  --gray-400: 160 140 140;
+  --gray-500: 130 110 110;
+  --gray-600: 90 65 65;
+  --gray-700: 60 35 35;
+  --gray-800: 30 16 16;
+  --gray-900: 15 8 8;
+  --gray-950: 8 4 4;
+
+  /* Loxia accent — crimson red */
+  --loxia-50:  254 242 242;
+  --loxia-100: 254 226 226;
+  --loxia-200: 254 202 202;
+  --loxia-300: 252 165 165;
+  --loxia-400: 248 113 113;
+  --loxia-500: 239 68 68;
+  --loxia-600: 220 38 38;
+  --loxia-700: 185 28 28;
+  --loxia-800: 153 27 27;
+  --loxia-900: 127 29 29;
+
+  /* Task status — cyber-adapted colors */
+  --task-completed: 74 222 128;     /* bright green — pops on dark red bg */
+  --task-completed-bg: 20 30 20;    /* dark green-tinted black */
+  --task-blocked: 251 191 36;       /* amber-400 — warning gold */
+  --task-blocked-bg: 30 25 10;      /* dark amber-tinted black */
+}
+
+/* Dracula theme — the official Dracula palette as used in the Dracula
+   VSCode/JetBrains plugins.
+   https://draculatheme.com/contribute
+
+   Gray scale is a mapping from Dracula's semantic slots:
+     - Dark end (700–950)  = background + current-line (#282a36, #21222c)
+     - Middle (500–600)    = comment (#6272a4) — low-contrast UI text
+     - Light end (100–400) = foreground (#f8f8f2) — readable on dark bg
+   Loxia accent is Dracula's signature purple #bd93f9. */
+.theme-dracula {
+  --gray-50:  248 248 242;  /* foreground */
+  --gray-100: 240 240 228;
+  --gray-200: 220 220 210;
+  --gray-300: 190 190 200;
+  --gray-400: 153 153 174;  /* dimmed fg */
+  --gray-500: 98 114 164;   /* comment */
+  --gray-600: 68 71 90;     /* current-line */
+  --gray-700: 50 53 72;
+  --gray-800: 40 42 54;     /* background */
+  --gray-900: 33 34 44;     /* sidebar bg */
+  --gray-950: 22 23 30;
+
+  /* Loxia accent = Dracula purple (#bd93f9) */
+  --loxia-50:  242 232 255;
+  --loxia-100: 224 205 252;
+  --loxia-200: 205 177 251;
+  --loxia-300: 189 147 249;  /* primary purple */
+  --loxia-400: 174 124 247;
+  --loxia-500: 154 101 237;
+  --loxia-600: 132 79 217;
+  --loxia-700: 108 63 193;
+  --loxia-800: 82 44 170;
+  --loxia-900: 58 27 139;
+
+  /* Task status — Dracula's green (#50fa7b) and orange (#ffb86c) */
+  --task-completed: 80 250 123;    /* Dracula green */
+  --task-completed-bg: 35 55 42;
+  --task-blocked: 255 184 108;     /* Dracula orange */
+  --task-blocked-bg: 55 43 30;
+}
+
+@layer base {
+  html {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100;
+  }
+}
+
+@layer components {
+  /* Touch drag and drop highlight */
+  .touch-drag-over {
+    @apply border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-lg;
+    border-style: solid !important;
+  }
+
+  .message-bubble {
+    @apply max-w-4xl mx-auto px-4 py-6 border-b border-gray-200 dark:border-gray-700;
+    /* CSS containment for virtualization performance */
+    contain: layout style;
+  }
+
+  /* Virtuoso list performance optimizations */
+  .virtuoso-message-list {
+    contain: strict;
+  }
+
+  .virtuoso-message-list [data-virtuoso-scroller="true"] {
+    will-change: scroll-position;
+  }
+  
+  .message-user {
+    @apply bg-white dark:bg-gray-800;
+  }
+  
+  .message-assistant {
+    @apply bg-gray-50 dark:bg-gray-900/50;
+  }
+  
+  .sidebar-item {
+    @apply flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200;
+  }
+  
+  .sidebar-item-active {
+    @apply bg-loxia-100 text-loxia-700 dark:bg-loxia-900/50 dark:text-loxia-300;
+  }
+  
+  .sidebar-item-inactive {
+    @apply text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100;
+  }
+  
+  .input-primary {
+    @apply w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-loxia-500 focus:border-loxia-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100;
+  }
+
+  /* Hide browser's native password reveal button (Edge, Chrome) */
+  .input-primary::-ms-reveal,
+  .input-primary::-ms-clear {
+    display: none;
+  }
+
+  .button-primary {
+    @apply inline-flex items-center justify-center px-4 py-2 h-10 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-loxia-600 hover:bg-loxia-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-loxia-500 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .button-secondary {
+    @apply inline-flex items-center justify-center px-4 py-2 h-10 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-loxia-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700;
+  }
+  
+  .agent-status-indicator {
+    @apply inline-flex items-center px-2 py-1 text-xs font-medium rounded-full;
+  }
+  
+  .agent-status-active {
+    @apply bg-agent-active/10 text-agent-active;
+  }
+  
+  .agent-status-paused {
+    @apply bg-agent-paused/10 text-agent-paused;
+  }
+  
+  .agent-status-error {
+    @apply bg-agent-error/10 text-agent-error;
+  }
+  
+  .agent-status-idle {
+    @apply bg-agent-idle/10 text-agent-idle;
+  }
+}
+
+/* Custom scrollbar styles — uses theme CSS variables */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--gray-400)) rgb(var(--gray-100));
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--gray-400));
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background-color: rgb(var(--gray-100));
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--gray-600));
+}
+
+.dark *::-webkit-scrollbar-track {
+  background-color: rgb(var(--gray-800));
+}
+
+.dark * {
+  scrollbar-color: rgb(var(--gray-600)) rgb(var(--gray-800));
+}
+
+/* Red Team button glow effect */
+.theme-redteam .button-primary {
+  box-shadow: 0 0 12px rgba(220, 38, 38, 0.15), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.theme-redteam .button-primary:hover {
+  box-shadow: 0 0 20px rgba(220, 38, 38, 0.3), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Red Team input focus glow */
+.theme-redteam .input-primary:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+
+/* Dracula button + input glow — subtle purple halo to match the vibe. */
+.theme-dracula .button-primary {
+  box-shadow: 0 0 10px rgba(189, 147, 249, 0.20), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.theme-dracula .button-primary:hover {
+  box-shadow: 0 0 18px rgba(189, 147, 249, 0.40), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.theme-dracula .input-primary:focus {
+  box-shadow: 0 0 0 3px rgba(189, 147, 249, 0.25);
+}
+
+/* Code highlighting styles */
+.code-block {
+  @apply bg-gray-100 dark:bg-gray-800 rounded-lg p-4 overflow-x-auto;
+}
+
+.code-block pre {
+  @apply text-sm;
+}
+
+/* Animation keyframes */
+@keyframes typing {
+  0%, 20% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-once {
+  0% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(251, 191, 36, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.typing-indicator {
+  animation: typing 1.5s infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out forwards;
+}
+
+.animate-pulse-once {
+  animation: pulse-once 1s ease-out;
+}
+
+.animate-fadeInScale {
+  animation: fadeInScale 0.2s ease-out forwards;
+}
+
+/* Loading states */
+.loading-pulse {
+  @apply animate-pulse;
+}
+
+.loading-spin {
+  @apply animate-spin;
+}
+
+/* Focus states for accessibility */
+.focus-visible {
+  @apply focus:outline-none focus:ring-2 focus:ring-loxia-500 focus:ring-offset-2;
+}
+
+/* Glow animation for Coding Agent button - pulses between normal and hover states */
+@keyframes glow-blue-light {
+  0%, 100% {
+    border-color: rgb(229 231 235); /* gray-200 */
+    background-color: transparent;
+  }
+  50% {
+    border-color: rgb(96 165 250); /* blue-400 */
+    background-color: rgb(239 246 255); /* blue-50 */
+  }
+}
+
+@keyframes glow-blue-dark {
+  0%, 100% {
+    border-color: rgb(55 65 81); /* gray-700 */
+    background-color: transparent;
+  }
+  50% {
+    border-color: rgb(59 130 246); /* blue-500 */
+    background-color: rgba(30, 58, 138, 0.2); /* blue-900/20 */
+  }
+}
+
+.animate-glow-blue {
+  animation: glow-blue-light 2s ease-in-out 10;
+}
+
+.dark .animate-glow-blue {
+  animation: glow-blue-dark 2s ease-in-out 10;
+}
+
+/* Red Team glow animation — red pulse instead of blue */
+@keyframes glow-red {
+  0%, 100% {
+    border-color: rgb(55 65 81);
+    background-color: transparent;
+  }
+  50% {
+    border-color: rgb(220 38 38);
+    background-color: rgba(127, 29, 29, 0.2);
+  }
+}
+
+.theme-redteam .animate-glow-blue {
+  animation: glow-red 2s ease-in-out 10;
+}
+
+/* Red Team pulse-once — red glow instead of amber */
+@keyframes pulse-once-red {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.theme-redteam .animate-pulse-once {
+  animation: pulse-once-red 1s ease-out;
+}
+
+/* Marquee animation for long text */
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  10% {
+    transform: translateX(0);
+  }
+  45% {
+    transform: translateX(calc(-100% + 100px));
+  }
+  55% {
+    transform: translateX(calc(-100% + 100px));
+  }
+  90% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.animate-marquee {
+  display: inline-block;
+  animation: marquee 8s ease-in-out infinite;
+}
+
+/* React Flow overrides */
+.react-flow__controls {
+  @apply !bg-white dark:!bg-gray-800 !border !border-gray-200 dark:!border-gray-700 !rounded-lg !shadow-lg;
+}
+
+.react-flow__controls-button {
+  @apply !bg-white dark:!bg-gray-800 !border-b !border-gray-200 dark:!border-gray-700 !fill-gray-600 dark:!fill-gray-300;
+}
+
+.react-flow__controls-button:hover {
+  @apply !bg-gray-100 dark:!bg-gray-700;
+}
+
+.react-flow__controls-button svg {
+  @apply !fill-current;
+}
+
+.react-flow__minimap {
+  @apply !bg-white dark:!bg-gray-800 !border !border-gray-200 dark:!border-gray-700 !rounded-lg !shadow-lg;
+}
+
+/* Hide React Flow attribution */
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* Fix node backgrounds */
+.react-flow__node {
+  @apply !bg-transparent;
+}

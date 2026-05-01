@@ -1,0 +1,48 @@
+# Dependencies
+**/node_modules/
+
+# Build outputs
+web-ui/dist/
+web-ui/build/
+electron-out/
+electron-dist/
+dist/
+
+# Local state directories
+flow-versions/
+flow-checkpoints/
+.loxia-state/
+.wwebjs_cache/
+
+# Tests + coverage
+test-results/
+coverage/
+
+# Logs and debug
+*.log
+*.heapsnapshot
+debug-*.js
+debug-*.log
+
+# Environment and secrets
+.env
+.env.local
+api-key.txt
+
+# Internal note workspaces (not part of the public docs)
+mds/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.VSCodeCounter/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tooling caches
+.claude/

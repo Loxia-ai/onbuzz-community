@@ -1,0 +1,105 @@
+name: 🐛 Bug report
+description: Something is broken or behaves unexpectedly.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! A few seconds of context up front saves a lot of back-and-forth later.
+
+        Before filing, please:
+        - Search [open issues](https://github.com/Loxia-ai/onbuzz-community/issues?q=is%3Aissue) for duplicates.
+        - Make sure you're on the latest version (`onbuzz --version` then `npm i -g onbuzz-community@latest`).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior. What did you see?
+      placeholder: I clicked Send in the chat and the agent crashed with…
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What did you expect?
+      description: Briefly — what should have happened instead?
+      placeholder: The agent should have responded, or returned a clear error.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Numbered list. The fewer the better.
+      placeholder: |
+        1. Run `onbuzz web`
+        2. Create an agent with model `claude-opus-4-7`
+        3. Send "hello"
+        4. See error in console
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider was involved?
+      multiple: false
+      options:
+        - OpenAI
+        - Anthropic
+        - Google Gemini
+        - xAI
+        - Ollama (local)
+        - Custom OpenAI-compatible endpoint
+        - Not provider-related
+        - Don't know
+
+  - type: input
+    id: model
+    attributes:
+      label: Model name (if relevant)
+      placeholder: e.g. claude-opus-4-7, gpt-5.2, gemini-2.5-pro
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: |
+        Paste relevant console output, server logs, or browser dev-tools errors.
+        Set `LOXIA_LOG_LEVEL=debug` for more detail.
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: OnBuzz version
+      placeholder: e.g. 4.6.2 (output of `onbuzz --version`)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other / multiple
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: e.g. 20.11.0 (output of `node --version`)
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Workarounds, screenshots, related issues, hunches about the cause.

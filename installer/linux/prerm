@@ -1,0 +1,15 @@
+#!/bin/bash
+# Loxia Autopilot One - Linux Pre-removal Script
+
+set -e
+
+BIN_DIR="/usr/bin"
+
+# Remove symlink
+if [ -L "$BIN_DIR/loxia" ]; then
+    rm -f "$BIN_DIR/loxia"
+fi
+
+echo "Loxia Autopilot One has been removed."
+
+exit 0

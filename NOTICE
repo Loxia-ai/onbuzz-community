@@ -1,0 +1,10 @@
+OnBuzz Community
+Copyright 2025-2026 Loxia Labs LLC and OnBuzz Community contributors
+
+This product includes software developed by Loxia Labs LLC. It was forked
+from the proprietary Loxia Autopilot codebase as a free, open-source
+release under the Apache License, Version 2.0.
+
+This product includes third-party software components distributed under
+their respective licenses. See `node_modules/*/LICENSE` files in installed
+distributions for details, or `package.json` for the dependency list.

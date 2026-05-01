@@ -1,0 +1,78 @@
+name: 🤝 Contribution idea
+description: You have time and skills, and you're looking for something useful to work on.
+labels: ["contribution", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Welcome 👋 — this template is for people who want to **contribute** but want to make sure
+        the idea is wanted before they invest hours.
+
+        Before filing:
+        - Check [`docs/GOOD_FIRST_ISSUES.md`](https://github.com/Loxia-ai/onbuzz-community/blob/main/docs/GOOD_FIRST_ISSUES.md)
+          for a curated list of pre-scoped tasks. If one matches, comment on its issue instead of opening a new one.
+        - For "I think OnBuzz should grow feature X", use the [Feature request](./new?template=feature_request.yml) template.
+        - For broad questions ("what's the architecture?"), use [Discussions](https://github.com/Loxia-ai/onbuzz-community/discussions).
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to work on?
+      description: |
+        A few sentences describing the change you have in mind. Code references / file paths welcome.
+      placeholder: |
+        I'd like to add a DeepSeek provider adapter. DeepSeek's API is OpenAI-compatible,
+        so it'd extend OpenAIProvider with a different base URL and a model-name matcher
+        for `deepseek-*`. Similar pattern to the existing xAI adapter.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this useful?
+      description: What's the problem this solves? Who else benefits?
+      placeholder: |
+        DeepSeek's V3 model is cheap, fast, and competitive on code tasks.
+        Right now users can only reach it through the customEndpoints path,
+        which doesn't auto-discover models or surface in the picker the same way.
+    validations:
+      required: true
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: How would you tackle it?
+      description: Optional, but a rough sketch helps us know we're on the same page.
+      placeholder: |
+        - New file: src/services/providers/deepseekProvider.js
+        - Extend OpenAIProvider, override id, displayName, matchesModel, baseUrl
+        - Add to ProviderRegistry constructor in src/services/providers/index.js
+        - Add tests in providers.contract.test.js
+        - Update docs/PROVIDERS.md
+
+  - type: dropdown
+    id: experience
+    attributes:
+      label: How familiar are you with the OnBuzz codebase?
+      options:
+        - First time looking — I'd need pointers
+        - I've poked around but never shipped a PR
+        - I've contributed before
+    validations:
+      required: true
+
+  - type: input
+    id: timeline
+    attributes:
+      label: Rough timeline
+      description: Optional. Helps us know whether to assign.
+      placeholder: e.g. "this weekend", "over the next 2 weeks", "no idea, just gauging interest"
+
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Confirm
+      options:
+        - label: I've read [CONTRIBUTING.md](https://github.com/Loxia-ai/onbuzz-community/blob/main/CONTRIBUTING.md).
+          required: true

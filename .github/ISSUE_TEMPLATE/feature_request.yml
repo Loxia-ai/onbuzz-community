@@ -1,0 +1,82 @@
+name: ✨ Feature request
+description: Suggest a new feature, capability, or behavior.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement! The best feature requests describe a real problem you ran into,
+        not a solution in search of one. Tell us what you were trying to do.
+
+        Before filing, please skim [open enhancements](https://github.com/Loxia-ai/onbuzz-community/issues?q=is%3Aissue+label%3Aenhancement) for similar ideas.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        Describe the situation that prompted this. What were you trying to do?
+        What's hard or impossible about it today?
+      placeholder: |
+        I'm trying to run a multi-agent flow where each agent uses a different
+        provider, but the agent picker doesn't show provider next to the model
+        name — so I can't tell which agent will use which key.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to see? Code, UI sketches, API shapes — anything that pins down the change.
+      placeholder: |
+        Add a small badge next to the model name in the AgentCreationModal
+        showing the provider id (openai/anthropic/gemini/xai/ollama).
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Workarounds you've tried, related features, or other approaches.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of OnBuzz does this touch?
+      multiple: true
+      options:
+        - Provider adapters (openai / anthropic / gemini / xai / ollama)
+        - Agent tools (terminal / filesystem / web / etc.)
+        - Web UI
+        - Terminal UI
+        - Scheduler / Flows
+        - Configuration / model catalog
+        - Documentation
+        - Build / CI / installers
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: How big is this?
+      description: Rough estimate. Helps us label and triage.
+      options:
+        - Small — a couple of hours
+        - Medium — a day or two
+        - Large — a week+ and probably needs design discussion first
+        - I'm not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Would you contribute the change?
+      description: Optional. We're happy to mentor.
+      options:
+        - label: I'd like to take a shot at implementing this myself.
+        - label: I'd review a PR from someone else.

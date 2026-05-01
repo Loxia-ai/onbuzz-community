@@ -1,0 +1,55 @@
+{
+  "name": "loxia-web-ui",
+  "version": "3.6.2",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "build:autopilot": "cross-env VITE_BRAND=autopilot vite build",
+    "build:onbuzz": "cross-env VITE_BRAND=onbuzz vite build",
+    "dev:autopilot": "cross-env VITE_BRAND=autopilot vite",
+    "dev:onbuzz": "cross-env VITE_BRAND=onbuzz vite",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0"
+  },
+  "dependencies": {
+    "@heroicons/react": "^2.0.18",
+    "@xyflow/react": "^12.10.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.400.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.4.1",
+    "react-markdown": "^9.0.1",
+    "react-router-dom": "^6.26.1",
+    "react-syntax-highlighter": "^15.5.0",
+    "react-virtuoso": "^4.18.0",
+    "zustand": "^4.5.4"
+  },
+  "overrides": {
+    "glob": "^10.4.5",
+    "rimraf": "^5.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.34.3",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "jsdom": "^29.0.1",
+    "postcss": "^8.4.39",
+    "tailwindcss": "^3.4.6",
+    "vite": "^5.3.4",
+    "vitest": "^4.1.1"
+  }
+}

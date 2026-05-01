@@ -1,0 +1,22 @@
+Package: loxia-autopilot
+Version: VERSION_PLACEHOLDER
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: Loxia AI <support@loxia.ai>
+Homepage: https://loxia.ai
+Description: Autonomous AI Agent System for Software Development
+ Loxia Autopilot One is a production-ready autonomous AI agent system
+ that empowers developers with intelligent coding assistance.
+ .
+ Features:
+  - Multi-agent orchestration
+  - 18+ specialized tools
+  - Web UI + CLI interfaces
+  - Code analysis and refactoring
+  - Task management system
+ .
+ Commands:
+  - loxia web: Start server and open Web UI
+  - loxia terminal: Start Terminal UI
+  - loxia serve: Start server only (headless)

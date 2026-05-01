@@ -1,0 +1,14 @@
+# Disable blank issue creation — funnel everyone through a template
+# (or to Discussions for open-ended questions).
+blank_issues_enabled: false
+
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/Loxia-ai/onbuzz-community/discussions
+    about: Ask a question, share a setup, or discuss a design idea (not a bug or feature request).
+  - name: Provider setup help
+    url: https://github.com/Loxia-ai/onbuzz-community/blob/main/docs/PROVIDERS.md
+    about: Per-vendor configuration walkthroughs.
+  - name: Security vulnerability
+    url: mailto:contact@loxia.ai
+    about: Please email rather than filing a public issue.

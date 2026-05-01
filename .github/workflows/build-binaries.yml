@@ -1,0 +1,475 @@
+# OnBuzz Community — release pipeline
+#
+# Builds the OnBuzz CLI binaries (Windows / macOS / Linux), platform
+# installers (NSIS / PKG / DEB), and the Electron desktop app, then
+# attaches them to a GitHub Release on the same repository.
+#
+# Repository guard: every job is gated on `github.repository ==
+# 'Loxia-ai/onbuzz-community'`. If this workflow file is ever copied
+# into another repo (e.g. the proprietary upstream codebase), all jobs
+# are skipped — preventing accidental binary builds and releases under
+# the wrong identity.
+
+name: Build OnBuzz Binaries & Installers
+
+on:
+  push:
+    tags:
+      - 'v*'  # e.g. v4.6.2
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: write  # Required for creating releases
+
+env:
+  ALLOWED_REPO: Loxia-ai/onbuzz-community
+
+jobs:
+  # ====================
+  # Build raw binaries for each platform
+  # ====================
+  build-binaries:
+    if: github.repository == 'Loxia-ai/onbuzz-community'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: windows-latest
+            target: node20-win-x64
+            ext: .exe
+          - os: macos-latest
+            target: node20-macos-x64
+            ext: ''
+          - os: ubuntu-latest
+            target: node20-linux-x64
+            ext: ''
+
+    runs-on: ${{ matrix.platform.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Web UI
+        shell: bash
+        run: |
+          cd web-ui
+          npm install
+          npx vite build
+          cd ..
+
+      - name: Install build tools globally
+        run: npm install -g @yao-pkg/pkg esbuild
+
+      - name: Bundle application with esbuild
+        shell: bash
+        run: |
+          mkdir -p dist-bundle
+
+          esbuild bin/cli.js --bundle --platform=node --target=node20 \
+            --format=cjs --outfile=dist-bundle/cli.cjs \
+            --external:puppeteer --external:tiktoken --external:blessed \
+            --external:blessed-contrib --external:ink --external:react \
+            --external:pdf2json --external:sparrow-sast \
+            --external:fsevents --external:discord.js \
+            --external:node-telegram-bot-api --external:whatsapp-web.js
+
+          esbuild src/index.js --bundle --platform=node --target=node20 \
+            --format=cjs --outfile=dist-bundle/index.cjs \
+            --external:puppeteer --external:tiktoken --external:blessed \
+            --external:blessed-contrib --external:ink --external:react \
+            --external:pdf2json --external:sparrow-sast \
+            --external:fsevents --external:discord.js \
+            --external:node-telegram-bot-api --external:whatsapp-web.js
+
+      - name: Create pkg entry wrapper
+        shell: bash
+        run: |
+          cat > dist-bundle/entry.js << 'EOF'
+          #!/usr/bin/env node
+          require('./cli.cjs');
+          EOF
+
+      - name: Create pkg config
+        shell: bash
+        run: |
+          cat > pkg.json << 'EOF'
+          {
+            "name": "onbuzz",
+            "bin": "dist-bundle/entry.js",
+            "pkg": {
+              "scripts": ["dist-bundle/**/*.cjs", "dist-bundle/**/*.js"],
+              "assets": [
+                "web-ui/build/**/*",
+                "config/**/*",
+                "node_modules/tiktoken/**/*",
+                "node_modules/puppeteer/.local-chromium/**/*"
+              ],
+              "targets": ["node20"],
+              "outputPath": "dist"
+            }
+          }
+          EOF
+
+      - name: Build binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          BINARY_NAME="onbuzz${{ matrix.platform.ext }}"
+          pkg pkg.json --target ${{ matrix.platform.target }} --output "dist/${BINARY_NAME}" --compress GZip
+
+      - name: Make binary executable (Unix)
+        if: runner.os != 'Windows'
+        run: chmod +x "dist/onbuzz"
+
+      - name: Test binary
+        shell: bash
+        run: |
+          BINARY_NAME="onbuzz${{ matrix.platform.ext }}"
+          ./dist/${BINARY_NAME} --version || dist/${BINARY_NAME} --version
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: onbuzz-${{ matrix.platform.target }}
+          path: dist/onbuzz${{ matrix.platform.ext }}
+          retention-days: 7
+
+  # ====================
+  # Create Windows Installer (NSIS)
+  # ====================
+  create-windows-installer:
+    if: github.repository == 'Loxia-ai/onbuzz-community'
+    needs: build-binaries
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows binary
+        uses: actions/download-artifact@v4
+        with:
+          name: onbuzz-node20-win-x64
+          path: dist/
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Add NSIS to PATH
+        shell: bash
+        run: echo "/c/Program Files (x86)/NSIS" >> $GITHUB_PATH
+
+      - name: Create installer
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="1.0.0"; fi
+
+          # The NSIS script targets a `loxia.exe` filename historically; copy
+          # the brand-named binary there so the installer can pick it up.
+          cp "dist/onbuzz.exe" "dist/loxia.exe" 2>/dev/null || true
+
+          mkdir -p dist
+          "/c/Program Files (x86)/NSIS/makensis.exe" \
+            -DVERSION="${VERSION}" \
+            -DPRODUCT_NAME="OnBuzz Community" \
+            -DBIN_NAME="onbuzz" \
+            -DINSTALLER_PREFIX="OnBuzzSetup" \
+            installer/windows/loxia-installer.nsi
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: onbuzz-windows-installer
+          path: dist/OnBuzzSetup-*.exe
+          retention-days: 7
+
+  # ====================
+  # Create macOS Installer (PKG)
+  # ====================
+  create-macos-installer:
+    if: github.repository == 'Loxia-ai/onbuzz-community'
+    needs: build-binaries
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download macOS binary
+        uses: actions/download-artifact@v4
+        with:
+          name: onbuzz-node20-macos-x64
+          path: staging/usr/local/lib/onbuzz/
+
+      - name: Make binary executable
+        run: chmod +x "staging/usr/local/lib/onbuzz/onbuzz"
+
+      - name: Copy installer scripts
+        run: |
+          mkdir -p scripts
+          cp installer/macos/postinstall scripts/
+          cp installer/macos/preinstall scripts/
+          chmod +x scripts/*
+
+      - name: Create PKG installer
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="1.0.0"; fi
+
+          mkdir -p dist
+
+          pkgbuild \
+            --root staging \
+            --identifier com.onbuzz.community \
+            --version "${VERSION}" \
+            --scripts scripts \
+            --install-location / \
+            "dist/OnBuzzSetup-${VERSION}-macos.pkg"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: onbuzz-macos-installer
+          path: dist/*.pkg
+          retention-days: 7
+
+  # ====================
+  # Create Linux DEB Package
+  # ====================
+  create-linux-deb:
+    if: github.repository == 'Loxia-ai/onbuzz-community'
+    needs: build-binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: onbuzz-node20-linux-x64
+          path: pkg-root/usr/lib/onbuzz/
+
+      - name: Prepare package structure
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="1.0.0"; fi
+
+          chmod +x "pkg-root/usr/lib/onbuzz/onbuzz"
+          mkdir -p pkg-root/usr/bin
+
+          mkdir -p pkg-root/DEBIAN
+          cp installer/linux/control pkg-root/DEBIAN/
+          cp installer/linux/postinst pkg-root/DEBIAN/
+          cp installer/linux/prerm pkg-root/DEBIAN/
+          chmod +x pkg-root/DEBIAN/postinst pkg-root/DEBIAN/prerm
+
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/" pkg-root/DEBIAN/control
+          sed -i "s/Package: .*/Package: onbuzz-community/" pkg-root/DEBIAN/control
+
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Build DEB package
+        run: |
+          mkdir -p dist
+          dpkg-deb --build pkg-root "dist/onbuzz-community_${VERSION}_amd64.deb"
+
+      - name: Upload DEB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: onbuzz-linux-deb
+          path: dist/*.deb
+          retention-days: 7
+
+  # ====================
+  # Build Electron Desktop App per platform
+  # ====================
+  build-electron:
+    if: github.repository == 'Loxia-ai/onbuzz-community'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: windows-latest
+            target: --win
+            artifact_ext: '.exe'
+          - os: macos-latest
+            target: --mac
+            artifact_ext: '.dmg'
+          - os: ubuntu-latest
+            target: --linux
+            artifact_ext: '.AppImage'
+
+    runs-on: ${{ matrix.platform.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm install --legacy-peer-deps
+          npm install --save-dev electron@32 electron-builder --legacy-peer-deps
+
+      - name: Build Web UI
+        shell: bash
+        run: |
+          cd web-ui
+          npm install
+          npx vite build
+          cd ..
+
+      - name: Prepare Electron icon from brand logo
+        shell: bash
+        run: |
+          BRAND_LOGO="web-ui/public/brands/onbuzz/logo.webp"
+          echo "Using brand logo: ${BRAND_LOGO}"
+          if command -v magick &>/dev/null; then
+            magick "${BRAND_LOGO}" -resize 512x512 electron/icon.png
+          elif command -v convert &>/dev/null; then
+            convert "${BRAND_LOGO}" -resize 512x512 electron/icon.png
+          elif command -v sips &>/dev/null; then
+            sips -z 512 512 electron/icon.png 2>/dev/null || echo "sips resize skipped"
+          else
+            echo "Warning: No image tool found, using default icon"
+          fi
+
+      - name: Build Electron app
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder ${{ matrix.platform.target }} \
+            -c.productName="OnBuzz Community" \
+            -c.appId=com.onbuzz.community \
+            --publish never
+
+      - name: Upload Electron artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-onbuzz-${{ matrix.platform.os }}
+          path: |
+            electron-dist/*${{ matrix.platform.artifact_ext }}
+            electron-dist/*.dmg
+            electron-dist/*.AppImage
+            electron-dist/*.exe
+          retention-days: 7
+
+  # ====================
+  # Publish GitHub Release on this repo
+  # ====================
+  create-release:
+    if: github.repository == 'Loxia-ai/onbuzz-community' && startsWith(github.ref, 'refs/tags/')
+    needs: [create-windows-installer, create-macos-installer, create-linux-deb, build-electron]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+
+      - name: List artifacts
+        run: |
+          echo "=== Downloaded artifacts ==="
+          find release-artifacts -type f -ls
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release-files
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          # Windows
+          cp release-artifacts/onbuzz-windows-installer/*.exe \
+            "release-files/OnBuzzSetup-${VERSION}-windows.exe" 2>/dev/null || true
+          cp release-artifacts/onbuzz-node20-win-x64/onbuzz.exe \
+            "release-files/onbuzz-${VERSION}-win-x64.exe" 2>/dev/null || true
+          # macOS
+          cp release-artifacts/onbuzz-macos-installer/*.pkg \
+            "release-files/OnBuzzSetup-${VERSION}-macos.pkg" 2>/dev/null || true
+          cp release-artifacts/onbuzz-node20-macos-x64/onbuzz \
+            "release-files/onbuzz-${VERSION}-macos-x64" 2>/dev/null || true
+          # Linux
+          cp release-artifacts/onbuzz-linux-deb/*.deb \
+            "release-files/onbuzz-community-${VERSION}-amd64.deb" 2>/dev/null || true
+          cp release-artifacts/onbuzz-node20-linux-x64/onbuzz \
+            "release-files/onbuzz-${VERSION}-linux-x64" 2>/dev/null || true
+
+          # Electron Desktop Apps
+          find release-artifacts/electron-onbuzz-* -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" \) \
+            -exec cp {} release-files/ \; 2>/dev/null || true
+
+          echo "=== Release files ==="
+          ls -la release-files/
+
+      - name: Generate release notes
+        run: |
+          cat << 'EOF' > release-notes.md
+          ## OnBuzz Community ${{ github.ref_name }}
+
+          Local-first, open-source autonomous AI agents framework. Bring
+          your own keys for OpenAI / Anthropic / Gemini / xAI, or run
+          fully offline with Ollama.
+
+          | Platform | Desktop App | CLI Installer | CLI Portable |
+          |---|---|---|---|
+          | Windows | `OnBuzz Community Setup *.exe` | `OnBuzzSetup-*-windows.exe` | `onbuzz-*-win-x64.exe` |
+          | macOS   | `OnBuzz Community-*.dmg`       | `OnBuzzSetup-*-macos.pkg`    | `onbuzz-*-macos-x64` |
+          | Linux   | `OnBuzz Community-*.AppImage`  | `onbuzz-community-*-amd64.deb` | `onbuzz-*-linux-x64` |
+
+          ```bash
+          npm install -g onbuzz-community
+          onbuzz web
+          ```
+
+          Apache-2.0 licensed. Source: https://github.com/Loxia-ai/onbuzz-community
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          # Defaults to the current repository (Loxia-ai/onbuzz-community)
+          name: OnBuzz Community ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+          files: |
+            release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

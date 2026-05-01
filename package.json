@@ -1,0 +1,183 @@
+{
+  "name": "onbuzz-community",
+  "version": "4.6.2",
+  "description": "OnBuzz Community — open-source local-first autonomous AI agents framework with bring-your-own-key support for OpenAI, Anthropic, Gemini, xAI, and Ollama.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "onbuzz": "./bin/cli.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --inspect src/index.js",
+    "terminal-ui": "node bin/loxia-terminal.js",
+    "terminal-ui-v2": "node bin/loxia-terminal-v2.js",
+    "start:terminal": "node bin/start-with-terminal.js",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
+    "lint": "eslint src/",
+    "typecheck": "echo 'No TypeScript - skipping typecheck'",
+    "build": "npm run build:web-ui",
+    "build:web-ui": "cd web-ui && npm install && npm run build && cd ..",
+    "build:binary:win": "pkg . --target node20-win-x64 --output dist/onbuzz.exe --compress GZip",
+    "build:binary:mac": "pkg . --target node20-macos-x64 --output dist/onbuzz-macos --compress GZip",
+    "build:binary:linux": "pkg . --target node20-linux-x64 --output dist/onbuzz-linux --compress GZip",
+    "postinstall": "node scripts/install-scanners.js",
+    "electron:dev": "cross-env LOXIA_ELECTRON=1 electron electron/main.js",
+    "electron:build": "npm run build:web-ui && electron-builder",
+    "electron:build:win": "npm run build:web-ui && electron-builder --win",
+    "electron:build:mac": "npm run build:web-ui && electron-builder --mac",
+    "electron:build:linux": "npm run build:web-ui && electron-builder --linux"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "automation",
+    "coding-assistant",
+    "open-source",
+    "ollama",
+    "openai",
+    "anthropic",
+    "gemini",
+    "xai",
+    "byok"
+  ],
+  "author": "Loxia Labs LLC and OnBuzz Community contributors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/loxia-labs/onbuzz-community.git"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "config/",
+    "skills/",
+    "web-ui/build/",
+    "web-ui/dist/",
+    "scripts/",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "bundledDependencies": [
+    "glob",
+    "rimraf"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.28.5",
+    "@babel/traverse": "^7.28.5",
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.11.0",
+    "chalk": "^5.6.2",
+    "discord.js": "^14.16.0",
+    "docx": "^9.5.3",
+    "exceljs": "^4.4.0",
+    "express": "^4.18.2",
+    "ghost-cursor": "^1.4.2",
+    "glob": "^13.0.0",
+    "http-proxy-middleware": "^3.0.5",
+    "ink": "^5.2.1",
+    "jsonrepair": "^3.13.2",
+    "mammoth": "^1.11.0",
+    "node-telegram-bot-api": "^0.67.0",
+    "ollama": "^0.6.3",
+    "pdf2json": "^3.1.4",
+    "postcss": "^8.5.6",
+    "postcss-less": "^6.0.0",
+    "postcss-scss": "^4.0.9",
+    "prettier": "^3.6.2",
+    "puppeteer": "^24.25.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "react": "^18.3.1",
+    "rimraf": "^6.0.0",
+    "sharp": "^0.33.5",
+    "sparrow-sast": "^1.0.1",
+    "strip-ansi": "^7.1.2",
+    "stylelint": "^16.25.0",
+    "stylelint-config-standard": "^39.0.1",
+    "tiktoken": "^1.0.15",
+    "typescript": "^5.9.3",
+    "uuid": "^11.1.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/blessed": "^0.1.25",
+    "@yao-pkg/pkg": "^6.0.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "esbuild": "^0.24.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-security": "^3.0.1",
+    "jest": "^29.7.0",
+    "jsdoc": "^4.0.2"
+  },
+  "build": {
+    "appId": "com.onbuzz.community",
+    "productName": "OnBuzz Community",
+    "npmRebuild": false,
+    "directories": {
+      "output": "electron-dist"
+    },
+    "files": [
+      "src/**/*",
+      "web-ui/build/**/*",
+      "electron/**/*",
+      "bin/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "electron/icon.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "electron/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "electron/icon.png"
+    }
+  },
+  "pkg": {
+    "scripts": [
+      "src/**/*.js",
+      "bin/**/*.js"
+    ],
+    "assets": [
+      "web-ui/build/**/*",
+      "config/**/*",
+      "node_modules/tiktoken/**/*",
+      "node_modules/puppeteer/**/*"
+    ],
+    "targets": [
+      "node20-win-x64",
+      "node20-macos-x64",
+      "node20-linux-x64"
+    ],
+    "outputPath": "dist"
+  },
+  "eslintConfig": {
+    "env": {
+      "node": true,
+      "es2022": true
+    },
+    "extends": [
+      "eslint:recommended"
+    ],
+    "parserOptions": {
+      "ecmaVersion": 2022,
+      "sourceType": "module"
+    },
+    "rules": {
+      "no-unused-vars": "warn",
+      "no-console": "off"
+    }
+  }
+}

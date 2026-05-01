@@ -1,0 +1,24 @@
+#!/bin/bash
+# Loxia Autopilot One - macOS Pre-installation Script
+
+set -e
+
+INSTALL_DIR="/usr/local/lib/loxia"
+BIN_DIR="/usr/local/bin"
+
+# Remove existing symlink if present
+if [ -L "$BIN_DIR/loxia" ]; then
+    rm -f "$BIN_DIR/loxia"
+    echo "Removed existing loxia symlink"
+fi
+
+# Remove old installation if exists
+if [ -d "$INSTALL_DIR" ]; then
+    rm -rf "$INSTALL_DIR"
+    echo "Removed previous installation"
+fi
+
+# Create installation directory
+mkdir -p "$INSTALL_DIR"
+
+exit 0

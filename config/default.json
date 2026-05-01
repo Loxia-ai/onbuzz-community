@@ -1,0 +1,96 @@
+{
+  "system": {
+    "maxAgentsPerProject": 10,
+    "qualityInspectorInterval": 10,
+    "defaultModel": "anthropic-sonnet",
+    "stateDirectory": ".loxia-state",
+    "maxPauseDuration": 300
+  },
+  
+  "context": {
+    "maxSize": 50000,
+    "maxReferences": 10,
+    "autoValidation": true,
+    "cacheExpiry": 3600
+  },
+  
+  "models": {
+    "routingTable": {
+      "coding": ["anthropic-sonnet", "gpt-4", "gpt-5.1-codex-mini", "deepseek-r1"],
+      "analysis": ["gpt-4", "phi-4", "phi-4-reasoning"],
+      "quick-tasks": ["anthropic-haiku", "gpt-4-mini", "phi-4"],
+      "creative": ["gpt-4", "gpt-5.1-codex-mini"],
+      "fallback": ["anthropic-sonnet"]
+    }
+  },
+  
+  "tools": {
+    "terminal": {
+      "timeout": 30000,
+      "enabled": true
+    },
+    "filesystem": {
+      "maxFileSize": 10485760,
+      "enabled": true
+    },
+    "browser": {
+      "timeout": 60000,
+      "enabled": true
+    },
+    "agentdelay": {
+      "maxDuration": 300,
+      "minDuration": 1,
+      "enabled": true
+    }
+  },
+  
+  "backend": {
+    "baseUrl": "https://loxia-api-g7hrb8bxdae8a2h7.z02.azurefd.net",
+    "timeout": 270000
+  },
+  
+  "budget": {
+    "limit": 100.00,
+    "alertThreshold": 0.8,
+    "trackUsage": true
+  },
+  
+  "logging": {
+    "level": "info",
+    "outputs": ["console"],
+    "colors": true,
+    "timestamp": true,
+    "logFile": "logs/loxia.log",
+    "maxFileSize": 10485760,
+    "maxFiles": 5
+  },
+  
+  "interfaces": {
+    "cli": {
+      "enabled": true,
+      "historySize": 1000
+    },
+    "web": {
+      "enabled": true,
+      "port": 8080,
+      "host": "0.0.0.0"
+    },
+    "vscode": {
+      "enabled": true,
+      "contextMenus": true,
+      "statusBar": true
+    }
+  },
+
+  "visualEditor": {
+    "enabled": true,
+    "defaultViewMode": "embedded",
+    "serverUrl": "http://localhost:4000",
+    "serverPort": 4000,
+    "maxInstances": 3,
+    "idleTimeoutMs": 600000,
+    "retryAttempts": 3,
+    "retryDelayMs": 1000,
+    "connectionTimeoutMs": 10000
+  }
+}
