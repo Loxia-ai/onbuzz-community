@@ -11,11 +11,13 @@ import VisualEditorPage from './pages/VisualEditorPage.jsx';
 // widget-module: remove this line if the module is deleted.
 import { WidgetAuditPage, WidgetGalleryPage } from './modules/widget';
 import AttentionRequiredModal from './components/AttentionRequiredModal.jsx';
+import OnboardingFlow from './components/onboarding/OnboardingFlow.jsx';
 import UpdateNotificationBar from './components/UpdateNotificationBar.jsx';
 import { useAppStore } from './stores/appStore.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useConsent } from './hooks/useConsent.js';
 import { useAttentionRequired, ISSUE_TYPES } from './hooks/useAttentionRequired.js';
+import { useOnboarding } from './hooks/useOnboarding.js';
 import { initializeClarity, upgradeConsent } from './utils/clarity.js';
 import LoadingSpinner from './components/LoadingSpinner.jsx';
 import { brand, applyBrand } from './config/brand.js';
@@ -32,6 +34,12 @@ function App() {
 
   // Unified attention required management
   const { issues, showModal, closeModal, resolveIssue } = useAttentionRequired();
+
+  // First-run onboarding (3-step wizard). When the wizard is on screen,
+  // suppress AttentionRequiredModal — the wizard already handles the
+  // privacy consent + key + agent path more gracefully.
+  const { shouldShow: showOnboarding, completeOnboarding, dismissOnboarding } =
+    useOnboarding();
 
   // Initialize WebSocket connection
   useWebSocket();
@@ -101,8 +109,18 @@ function App() {
       {/* Main App with Layout */}
       <Route path="/*" element={
         <>
-          {/* Unified Attention Required Modal */}
-          {showModal && issues.length > 0 && (
+          {/* First-run onboarding wizard. Renders above all other UI when
+              the user is fresh; takes precedence over AttentionRequiredModal. */}
+          {showOnboarding && (
+            <OnboardingFlow
+              onComplete={completeOnboarding}
+              onSkip={dismissOnboarding}
+            />
+          )}
+
+          {/* Unified Attention Required Modal — hidden while onboarding
+              is on screen so we don't stack two competing dialogs. */}
+          {!showOnboarding && showModal && issues.length > 0 && (
             <AttentionRequiredModal
               issues={issues}
               onResolve={resolveIssue}
