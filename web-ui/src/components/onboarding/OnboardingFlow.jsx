@@ -33,16 +33,22 @@ function OnboardingFlow({ onComplete, onSkip }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [providerId, setProviderId] = useState(null);
   const [providerModels, setProviderModels] = useState([]);
+  // True when the user advances from step 2 without verifying a key
+  // (cloud providers only). Step 3 reads this and falls back to Ollama
+  // — or, if Ollama is also unreachable, offers a finish-without-agent
+  // exit so the user is never stuck.
+  const [connectionSkipped, setConnectionSkipped] = useState(false);
 
   const goNext = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1));
   const goBack = () => setStepIndex((i) => Math.max(i - 1, 0));
 
   // When the user picks a different provider on step 1, drop any models
   // collected from a previous test — those belonged to the old provider.
-  // Step 2 also clears its own per-provider state on prop change.
+  // Also clear the skipped flag so each new provider gets a fresh chance.
   const handleSelectProvider = (pid) => {
     if (pid !== providerId) {
       setProviderModels([]);
+      setConnectionSkipped(false);
     }
     setProviderId(pid);
   };
@@ -50,6 +56,13 @@ function OnboardingFlow({ onComplete, onSkip }) {
   const handleConnected = ({ providerId: pid, models }) => {
     setProviderId(pid);
     setProviderModels(models || []);
+    setConnectionSkipped(false);
+    goNext();
+  };
+
+  const handleSkipConnection = () => {
+    setProviderModels([]);
+    setConnectionSkipped(true);
     goNext();
   };
 
@@ -140,12 +153,14 @@ function OnboardingFlow({ onComplete, onSkip }) {
               providerId={providerId}
               onBack={goBack}
               onConnected={handleConnected}
+              onSkip={handleSkipConnection}
             />
           )}
           {stepIndex === 2 && providerId && (
             <StepAgent
               providerId={providerId}
               providerModels={providerModels}
+              connectionSkipped={connectionSkipped}
               onBack={goBack}
               onCreated={handleAgentCreated}
             />
