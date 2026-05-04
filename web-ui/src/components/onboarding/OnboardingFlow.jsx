@@ -37,6 +37,16 @@ function OnboardingFlow({ onComplete, onSkip }) {
   const goNext = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1));
   const goBack = () => setStepIndex((i) => Math.max(i - 1, 0));
 
+  // When the user picks a different provider on step 1, drop any models
+  // collected from a previous test — those belonged to the old provider.
+  // Step 2 also clears its own per-provider state on prop change.
+  const handleSelectProvider = (pid) => {
+    if (pid !== providerId) {
+      setProviderModels([]);
+    }
+    setProviderId(pid);
+  };
+
   const handleConnected = ({ providerId: pid, models }) => {
     setProviderId(pid);
     setProviderModels(models || []);
@@ -121,7 +131,7 @@ function OnboardingFlow({ onComplete, onSkip }) {
           {stepIndex === 0 && (
             <StepProvider
               selectedProviderId={providerId}
-              onSelect={setProviderId}
+              onSelect={handleSelectProvider}
               onContinue={goNext}
             />
           )}
