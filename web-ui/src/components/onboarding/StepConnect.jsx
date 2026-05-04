@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   EyeIcon,
   EyeSlashIcon,
@@ -8,7 +8,7 @@ import {
 import { api } from '../../services/api.js';
 import { useAppStore } from '../../stores/appStore.js';
 import LoadingSpinner from '../LoadingSpinner.jsx';
-import { getProvider, testCloudProvider, testOllama } from './providers.js';
+import { getProvider } from './providers.js';
 
 const SETTINGS_STORAGE_KEY = 'loxia-settings';
 const OLLAMA_SETTINGS_KEY = 'loxia-ollama-settings';
@@ -16,13 +16,19 @@ const OLLAMA_SETTINGS_KEY = 'loxia-ollama-settings';
 /**
  * Step 2 — collect and verify the connection for the chosen provider.
  *
- * Cloud providers: input field + "Test connection" that calls the
- * provider's models endpoint. Successful tests persist the key locally
+ * Cloud providers: input field + "Test connection" that calls the backend
+ * (POST /api/providers/test) which in turn hits the provider's models
+ * endpoint server-side. Successful tests persist the key locally
  * (loxia-settings) and to the backend session (api.setApiKeys), then
  * forward the model list to the parent so step 3 can pick a default.
  *
  * Ollama: no key field — just a host input + reachability check that
  * lists installed models.
+ *
+ * Stale-response guard: each test bumps a request id and the resolved
+ * promise only updates state if the id still matches. Prevents an in-
+ * flight bad-key test from clobbering a fresh good-key result if the
+ * user typed quickly.
  */
 function StepConnect({ providerId, onBack, onConnected }) {
   const provider = getProvider(providerId);
@@ -35,16 +41,25 @@ function StepConnect({ providerId, onBack, onConnected }) {
   const [result, setResult] = useState(null); // { ok, message, models? }
   const [saving, setSaving] = useState(false);
 
-  // Pre-fill any existing key/host so the user doesn't re-type.
+  const testRequestId = useRef(0);
+
+  // Pre-fill any existing key/host so the user doesn't re-type. Reset the
+  // result when the provider changes — a passing OpenAI test must not
+  // unlock Continue after the user goes back and switches to Anthropic.
   useEffect(() => {
     if (!provider) return;
+    setResult(null);
+    setTesting(false);
+    testRequestId.current += 1; // invalidate any in-flight request
     try {
       if (provider.cloud) {
         const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
           const existing = parsed?.apiKeys?.[provider.id];
-          if (typeof existing === 'string') setApiKey(existing);
+          setApiKey(typeof existing === 'string' ? existing : '');
+        } else {
+          setApiKey('');
         }
       } else {
         const raw = localStorage.getItem(OLLAMA_SETTINGS_KEY);
@@ -56,17 +71,29 @@ function StepConnect({ providerId, onBack, onConnected }) {
     } catch {
       /* ignore parse errors — defaults are fine */
     }
-    setResult(null);
   }, [provider]);
 
   if (!provider) return null;
 
   const handleTest = async () => {
+    const myId = ++testRequestId.current;
     setTesting(true);
     setResult(null);
-    const r = provider.cloud
-      ? await testCloudProvider(provider.id, apiKey)
-      : await testOllama(host);
+    let r;
+    try {
+      r = await api.testProviderConnection({
+        provider: provider.id,
+        apiKey: provider.cloud ? apiKey : undefined,
+        host: provider.cloud ? undefined : host,
+      });
+    } catch (err) {
+      r = {
+        ok: false,
+        message: err?.message || 'Provider test failed. Check the connection and try again.',
+      };
+    }
+    // Drop stale responses — only the most recent test wins.
+    if (myId !== testRequestId.current) return;
     setResult(r);
     setTesting(false);
   };
@@ -77,7 +104,7 @@ function StepConnect({ providerId, onBack, onConnected }) {
   //              + backend session via api.setApiKeys
   //   - Ollama → loxia-ollama-settings + backend via api.updateOllamaSettings
   const handleSaveAndContinue = async () => {
-    if (!result?.ok) return;
+    if (!result?.ok || saving) return;
     setSaving(true);
     try {
       if (provider.cloud) {
@@ -115,6 +142,17 @@ function StepConnect({ providerId, onBack, onConnected }) {
     }
   };
 
+  // Editing the key/host invalidates the prior result so Continue can't
+  // be clicked against stale evidence.
+  const handleKeyChange = (value) => {
+    setApiKey(value);
+    if (result) setResult(null);
+  };
+  const handleHostChange = (value) => {
+    setHost(value);
+    if (result) setResult(null);
+  };
+
   return (
     <div>
       <p className="text-sm text-gray-600 dark:text-gray-400 mb-5">
@@ -132,10 +170,7 @@ function StepConnect({ providerId, onBack, onConnected }) {
             <input
               type={showApiKey ? 'text' : 'password'}
               value={apiKey}
-              onChange={(e) => {
-                setApiKey(e.target.value);
-                setResult(null);
-              }}
+              onChange={(e) => handleKeyChange(e.target.value)}
               placeholder={provider.placeholder}
               className="input-primary pr-10 w-full"
               data-clarity-mask="always"
@@ -177,10 +212,7 @@ function StepConnect({ providerId, onBack, onConnected }) {
           <input
             type="text"
             value={host}
-            onChange={(e) => {
-              setHost(e.target.value);
-              setResult(null);
-            }}
+            onChange={(e) => handleHostChange(e.target.value)}
             placeholder="http://localhost:11434"
             className="input-primary w-full"
             autoFocus
@@ -255,7 +287,7 @@ function StepConnect({ providerId, onBack, onConnected }) {
         <button
           type="button"
           onClick={handleSaveAndContinue}
-          disabled={!result?.ok || saving}
+          disabled={!result?.ok || saving || testing}
           className="button-primary disabled:opacity-50"
         >
           {saving ? (
