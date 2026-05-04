@@ -49,8 +49,11 @@ Provider metadata lives in `web-ui/src/components/onboarding/providers.js`.
 ### 2. Add key / connect
 
 For cloud providers we collect an API key and offer a **Test connection**
-button. The button POSTs to the new backend endpoint, which calls the
-provider's models endpoint server-side and returns a uniform shape:
+button, plus a small **Skip for now** link that hands off to step 3
+unverified. (Ollama already skips key entry by definition — the link is
+not shown there to avoid double-skipping.) The button POSTs to the new
+backend endpoint, which calls the provider's models endpoint server-side
+and returns a uniform shape:
 
 ```
 POST /api/providers/test
@@ -99,19 +102,34 @@ Creates a single agent named **General Assistant** with a short
 existing `createAgent` defaults — the user can opt into tools later from
 the agent edit modal).
 
-Model selection:
+Step 3 picks one of four sub-states based on `providerId`,
+`providerModels`, `connectionSkipped`, and the live Ollama probe:
+
+| `connectionSkipped` | Ollama state                | UI                                                           | Primary button                          |
+| ------------------- | --------------------------- | ------------------------------------------------------------ | --------------------------------------- |
+| false               | n/a (cloud key verified)    | Cloud model picker, balanced default pre-selected            | **Create agent and start chatting**     |
+| false               | Ollama chosen, models OK    | Local model picker                                           | **Create agent and start chatting**     |
+| false               | Ollama chosen, no models    | Pull guidance + "I installed a model" refresh                | disabled until refresh succeeds         |
+| true                | Ollama reachable + models   | Cloud-skipped info banner, Ollama model picker               | **Create agent and start chatting**     |
+| true                | Ollama reachable, no models | Amber panel with `ollama pull qwen2.5:1.5b` + refresh        | **Finish without an agent** (enabled)   |
+| true                | Ollama unreachable          | Amber panel: "Ollama is not running…" + "Re-check Ollama"    | **Finish without an agent** (enabled)   |
+
+The "skip → finish without an agent" exit completes onboarding (sets
+`loxia-onboarding-complete = true`) without calling `createAgent`. The
+user lands on the chat view; the existing `AttentionRequiredModal` then
+surfaces the "Provider key missing" reminder, and the user can add a key
+from Settings whenever they're ready.
+
+Model resolution (when an agent IS being created):
 
 - **Cloud** — picks a balanced default from the model list returned by step
   2's connection test, using `pickDefaultModel()` (substring match against
   per-provider hints, then provider default, then first available).
-- **Ollama** — uses the locally-installed model list. If none are present,
-  the wizard shows the exact `ollama pull qwen2.5:1.5b` command to run and
-  an **"I installed a model"** refresh button so the user can re-list
-  without restarting the wizard. Falls back to Settings → Ollama for
-  in-app pulls.
+- **Ollama** — uses the locally-installed model list, defaulting to the
+  first one found.
 
-After creation the wizard navigates to `/` (the chat view) and marks
-onboarding complete.
+After creation (or finish-without-agent) the wizard navigates to `/` (the
+chat view) and marks onboarding complete.
 
 ## Persistence summary
 
@@ -209,6 +227,11 @@ Edge cases:
 - **Spam the test button** — only the latest test's response is honoured;
   earlier responses (whether they would have passed or failed) are
   dropped via a request-id check.
+- **Skip for now (cloud)** — sets `connectionSkipped = true` in the
+  wizard. Step 3 falls back to Ollama if reachable + has models;
+  otherwise shows a finish-without-agent exit so the path never
+  dead-ends. Switching providers on step 1 clears `connectionSkipped`
+  so each new provider gets a fresh chance.
 
 Skip path:
 
