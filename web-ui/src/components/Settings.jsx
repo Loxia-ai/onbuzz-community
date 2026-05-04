@@ -182,6 +182,11 @@ function Settings() {
       if (ollamaEnabled) {
         await fetchOllamaModels();
       }
+      // Tell the rest of the app the provider picture may have changed
+      // — useAttentionRequired listens on this channel and will re-
+      // evaluate whether Ollama still satisfies the provider check.
+      window.dispatchEvent(new CustomEvent('apikey-updated'));
+      window.dispatchEvent(new CustomEvent('settings-updated'));
     } catch {
       toast.error('Failed to save Ollama settings');
     }
