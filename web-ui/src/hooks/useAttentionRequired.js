@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
+import { isProviderKeySkipped, PROVIDER_KEY_SKIP_EVENT } from '../utils/providerKeySkip.js';
 
 const SETTINGS_STORAGE_KEY = 'loxia-settings';
 const CONSENT_STORAGE_KEY = 'loxia-analytics-consent';
@@ -92,7 +93,14 @@ const getIssues = () => {
     });
   }
 
-  if (!checkApiKeyConfigured()) {
+  // The "Provider Key Required" reminder is suppressed when:
+  //   1. Any vendor key is configured (existing happy-path), or
+  //   2. The user explicitly chose Skip-for-now (in onboarding or in
+  //      this very modal). The skip flag persists so we never re-prompt
+  //      someone who already deferred.
+  // Adding a key later flips checkApiKeyConfigured() to true and both
+  // gates pass — no need to clear the skip flag manually.
+  if (!checkApiKeyConfigured() && !isProviderKeySkipped()) {
     issues.push({
       type: ISSUE_TYPES.API_KEY_MISSING,
       title: 'Provider Key Required',
@@ -156,6 +164,7 @@ export function useAttentionRequired() {
     window.addEventListener('consent-updated', handleUpdate);
     window.addEventListener('settings-updated', handleUpdate);
     window.addEventListener('apikey-updated', handleUpdate);
+    window.addEventListener(PROVIDER_KEY_SKIP_EVENT, handleUpdate);
     window.addEventListener('attention-modal-opened', handleModalOpened);
 
     return () => {
@@ -163,6 +172,7 @@ export function useAttentionRequired() {
       window.removeEventListener('consent-updated', handleUpdate);
       window.removeEventListener('settings-updated', handleUpdate);
       window.removeEventListener('apikey-updated', handleUpdate);
+      window.removeEventListener(PROVIDER_KEY_SKIP_EVENT, handleUpdate);
       window.removeEventListener('attention-modal-opened', handleModalOpened);
     };
   }, [refreshIssues]);
