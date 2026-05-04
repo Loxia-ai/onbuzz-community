@@ -10,6 +10,7 @@ import StepProvider from './StepProvider.jsx';
 import StepConnect from './StepConnect.jsx';
 import StepAgent from './StepAgent.jsx';
 import { brand } from '../../config/brand.js';
+import { skipProviderKey } from '../../utils/providerKeySkip.js';
 
 const STEPS = [
   { id: 'provider', title: 'Provider' },
@@ -67,6 +68,13 @@ function OnboardingFlow({ onComplete, onSkip }) {
   };
 
   const handleAgentCreated = () => {
+    // If the user reached step 3 by skipping the cloud key, persist the
+    // shared "skip" flag so the post-onboarding AttentionRequiredModal
+    // doesn't immediately re-prompt for the very thing they just opted
+    // out of. Adding a real key later supersedes the flag automatically.
+    if (connectionSkipped) {
+      skipProviderKey();
+    }
     onComplete?.();
     navigate('/');
   };
