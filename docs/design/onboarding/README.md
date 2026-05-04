@@ -6,12 +6,24 @@ in under 60 seconds.
 ## When it shows
 
 `useOnboarding` (web-ui/src/hooks/useOnboarding.js) decides whether to mount
-the wizard on every render. The wizard appears when **all** of these hold:
+the wizard. **One source of truth**: the `loxia-onboarding-complete` flag in
+localStorage. The hook computes a single derived expression:
 
-- `loxia-onboarding-complete` is **not** set in localStorage
-- the session has zero agents (`appStore.agents.length === 0`)
-- the user has **no** vendor key configured for any of openai, anthropic,
-  gemini, xai (`loxia-settings.apiKeys`)
+```js
+shouldShow = initialized && !dismissed
+          && !flag
+          && noAgents
+          && noProvider
+```
+
+- `flag` is read straight from localStorage on every render via
+  `useSyncExternalStore` — no mirrored React state, so cross-tab and
+  same-tab writes can never get out of sync.
+- `noAgents` comes from `appStore.agents.length === 0`.
+- `noProvider` comes from `loxia-settings.apiKeys` (none of openai /
+  anthropic / gemini / xai have a non-empty value).
+- `dismissed` is per-session only (resets on reload) — when the user hits
+  the skip button.
 
 Once the wizard finishes, `loxia-onboarding-complete = "true"` is the
 authoritative source for "this user has been onboarded". Removing keys or
@@ -37,18 +49,37 @@ Provider metadata lives in `web-ui/src/components/onboarding/providers.js`.
 ### 2. Add key / connect
 
 For cloud providers we collect an API key and offer a **Test connection**
-button that hits the provider's models endpoint directly from the browser:
+button. The button POSTs to the new backend endpoint, which calls the
+provider's models endpoint server-side and returns a uniform shape:
+
+```
+POST /api/providers/test
+  body: { provider, apiKey?, host? }
+  200 → { ok: true,  models: string[] }
+       | { ok: false, message: string }
+```
+
+Implementation: `src/services/providerTester.js`. Routes used server-side:
 
 | Provider  | Endpoint                                                          | Auth                                     |
 | --------- | ----------------------------------------------------------------- | ---------------------------------------- |
 | OpenAI    | `GET https://api.openai.com/v1/models`                            | `Authorization: Bearer <key>`            |
-| Anthropic | `GET https://api.anthropic.com/v1/models`                         | `x-api-key`, plus the dangerous-direct-browser-access opt-in header |
+| Anthropic | `GET https://api.anthropic.com/v1/models`                         | `x-api-key` + `anthropic-version`        |
 | Gemini    | `GET https://generativelanguage.googleapis.com/v1beta/models?key=` | query param                              |
 | xAI       | `GET https://api.x.ai/v1/models`                                  | `Authorization: Bearer <key>`            |
+| Ollama    | `GET <host>/api/tags`                                             | none                                     |
 
-For Ollama we hit the local daemon at `<host>/api/tags` (default
-`http://localhost:11434`). The host field is pre-filled and the
-"connection test" lists installed models.
+Why server-side?
+- No CORS quirks to manage per provider (Anthropic in particular requires
+  an opt-in header for browser calls).
+- Keys never traverse the user's browser → `api.x.ai` etc. directly; they
+  only ever go to the local backend.
+- Network timeouts and friendly error messages are owned by one module.
+
+The frontend uses an incrementing **request id** so a stale in-flight test
+can never overwrite a fresh result if the user retypes their key fast.
+Editing the key/host after a successful test re-disables Continue —
+"verified" only counts for the exact value tested.
 
 On success the key/host is persisted in two places:
 
@@ -74,8 +105,10 @@ Model selection:
   2's connection test, using `pickDefaultModel()` (substring match against
   per-provider hints, then provider default, then first available).
 - **Ollama** — uses the locally-installed model list. If none are present,
-  the wizard refuses to create a broken agent and shows guidance to run
-  `ollama pull <model>` (or the Settings → Ollama page).
+  the wizard shows the exact `ollama pull qwen2.5:1.5b` command to run and
+  an **"I installed a model"** refresh button so the user can re-list
+  without restarting the wizard. Falls back to Settings → Ollama for
+  in-app pulls.
 
 After creation the wizard navigates to `/` (the chat view) and marks
 onboarding complete.
@@ -98,13 +131,18 @@ drilling — same pattern the existing `AttentionRequiredModal` uses.
 web-ui/src/components/onboarding/
   OnboardingFlow.jsx       # 3-step wizard container (modal)
   StepProvider.jsx         # tile picker
-  StepConnect.jsx          # key input + test connection
-  StepAgent.jsx            # default agent creation
-  providers.js             # provider catalogue + browser test fns
+  StepConnect.jsx          # key input + test connection (calls backend)
+  StepAgent.jsx            # default agent creation + Ollama refresh
+  providers.js             # provider catalogue + pickDefaultModel()
 
-web-ui/src/hooks/useOnboarding.js   # first-run detection + completion flag
+web-ui/src/hooks/useOnboarding.js   # first-run detection (single-source)
+web-ui/src/services/api.js          # adds api.testProviderConnection()
 web-ui/src/App.jsx                  # mounts OnboardingFlow, suppresses
                                     # AttentionRequiredModal while open
+
+src/services/providerTester.js      # backend test logic (timeouts,
+                                    # error mapping, model extraction)
+src/interfaces/webServer.js         # POST /api/providers/test route
 ```
 
 ## Wireframe / screenshot notes
@@ -125,7 +163,8 @@ localStorage:
    pre-selected with the balanced default, "Create agent and start
    chatting" primary button.
 5. **Step 3 (Ollama, no models)** — Amber guidance banner with the
-   `ollama pull llama3.1` snippet; primary button disabled.
+   `ollama pull qwen2.5:1.5b` snippet and an "I installed a model" refresh
+   button; primary button disabled until a model is detected.
 
 Capture each at 1280×800 light + dark themes for the design board.
 
@@ -155,8 +194,21 @@ Failure paths:
   try again."
 - Ollama not running → "We could not reach Ollama. Make sure it is running
   on this machine."
-- Ollama running but zero models → step 3 shows guidance banner; primary
-  button disabled.
+- Ollama running but zero models → step 3 shows guidance banner with
+  pull command and "I installed a model" refresh button; primary button
+  disabled until refresh detects a model.
+
+Edge cases:
+
+- **Switch provider mid-flow** — go to step 1, pick OpenAI, advance to
+  step 2 with a passing test. Hit Back, pick Anthropic. Step 2 wipes the
+  prior key + test result; step 3's `providerModels` is also cleared so
+  no stale OpenAI models leak in.
+- **Edit key after success** — the green "Connection test passed" banner
+  clears the moment the user types in the field, and Continue re-disables.
+- **Spam the test button** — only the latest test's response is honoured;
+  earlier responses (whether they would have passed or failed) are
+  dropped via a request-id check.
 
 Skip path:
 
