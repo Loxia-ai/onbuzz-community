@@ -133,11 +133,12 @@ chat view) and marks onboarding complete.
 
 ## Persistence summary
 
-| localStorage key                | Owner                    | When set                       |
-| ------------------------------- | ------------------------ | ------------------------------ |
-| `loxia-onboarding-complete`     | `useOnboarding`          | step 3 success                 |
-| `loxia-settings.apiKeys.<id>`   | `StepConnect` (cloud)    | step 2 success                 |
-| `loxia-ollama-settings`         | `StepConnect` (Ollama)   | step 2 success                 |
+| localStorage key                | Owner                                | When set                                  |
+| ------------------------------- | ------------------------------------ | ----------------------------------------- |
+| `loxia-onboarding-complete`     | `useOnboarding`                      | step 3 success                            |
+| `loxia-settings.apiKeys.<id>`   | `StepConnect` (cloud)                | step 2 success                            |
+| `loxia-ollama-settings`         | `StepConnect` (Ollama)               | step 2 success                            |
+| `loxia-provider-key-skipped`    | `utils/providerKeySkip.js` (shared)  | onboarding skip path **or** modal skip   |
 
 Custom DOM events (`apikey-updated`, `settings-updated`,
 `onboarding-completed`) keep the rest of the app in sync without prop
@@ -231,7 +232,26 @@ Edge cases:
   wizard. Step 3 falls back to Ollama if reachable + has models;
   otherwise shows a finish-without-agent exit so the path never
   dead-ends. Switching providers on step 1 clears `connectionSkipped`
-  so each new provider gets a fresh chance.
+  so each new provider gets a fresh chance. When the wizard finishes
+  on the skip path it also writes `loxia-provider-key-skipped = true`
+  via `utils/providerKeySkip.js` so the post-onboarding
+  `AttentionRequiredModal` does not re-prompt for the same thing.
+
+## Consistent skip across the app
+
+Skipping is a single concept with one persistent flag
+(`loxia-provider-key-skipped`) and one shared module
+(`web-ui/src/utils/providerKeySkip.js`):
+
+| Where the user skips                | What gets called          | Effect                                                        |
+| ----------------------------------- | ------------------------- | ------------------------------------------------------------- |
+| Onboarding step 2 → step 3 finishes | `skipProviderKey()`       | Sets the flag and dispatches `apikey-updated` so other UI recomputes. |
+| AttentionRequiredModal — Skip btn   | `skipProviderKey()`       | Same flag, same event. Modal closes via `onResolve`.         |
+| Adding a real key later             | `localStorage.apiKeys.x`  | Existing path — `checkApiKeyConfigured()` returns true and the modal stops bothering the user regardless of the flag. |
+
+`useAttentionRequired` reads `isProviderKeySkipped()` when computing
+issues — when the flag is set the API_KEY_MISSING issue is excluded
+entirely, so the modal never re-opens for that reason.
 
 Skip path:
 
