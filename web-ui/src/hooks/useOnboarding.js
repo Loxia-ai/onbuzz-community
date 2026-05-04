@@ -1,19 +1,26 @@
 /**
  * useOnboarding - first-run detection for the onboarding wizard.
  *
- * The wizard is shown when ALL of the following hold:
- *   - the user has not completed onboarding before
- *     (loxia-onboarding-complete flag in localStorage)
- *   - no agent exists in the current session
- *   - no provider key is configured (none of openai/anthropic/gemini/xai)
+ * Single source of truth: `loxia-onboarding-complete` in localStorage.
  *
- * Once completed it is never shown again on this machine — the flag is the
- * source of truth, not the agent/key state. That means a user who later
- * deletes their key gets the existing "Provider key missing" reminder, not
- * the full wizard again.
+ * Visibility rule (one expression, no extra state):
+ *   shouldShow = !flag && noAgents && noProvider && initialized && !dismissed
+ *
+ * Inputs:
+ *   - flag             — read from localStorage on every render (cheap)
+ *   - noAgents         — appStore.agents.length === 0
+ *   - noProvider       — no vendor key in loxia-settings
+ *   - initialized      — appStore.initialized (don't flash before session boots)
+ *   - dismissed        — local component state, only meaningful for the
+ *                        current page lifetime (resets on reload)
+ *
+ * `agents` and `apiKey-updated` events drive recomputation through
+ * Zustand's reactivity and a single `storage`+custom-event listener that
+ * forces a re-render. We deliberately avoid mirroring the flag into
+ * React state — that's where bugs hide.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useAppStore } from '../stores/appStore.js';
 
 const SETTINGS_STORAGE_KEY = 'loxia-settings';
@@ -41,48 +48,48 @@ const isOnboardingComplete = () => {
   }
 };
 
+// useSyncExternalStore lets us treat localStorage as a reactive source
+// without mirroring its value into useState. The subscribe function wires
+// in cross-tab `storage` events plus the same-tab custom events that
+// other onboarding components dispatch when they write keys.
+const subscribeStorage = (callback) => {
+  const events = ['storage', 'apikey-updated', 'settings-updated', 'onboarding-completed'];
+  events.forEach((e) => window.addEventListener(e, callback));
+  return () => events.forEach((e) => window.removeEventListener(e, callback));
+};
+
+// Tick-based snapshot — useSyncExternalStore needs referentially stable
+// values for "no change". An incrementing counter is the simplest way to
+// say "re-render and re-read localStorage" without mirroring values.
+let storageTick = 0;
+const getStorageSnapshot = () => storageTick;
+const bumpStorageTick = () => {
+  storageTick += 1;
+};
+
+if (typeof window !== 'undefined') {
+  ['storage', 'apikey-updated', 'settings-updated', 'onboarding-completed'].forEach((e) =>
+    window.addEventListener(e, bumpStorageTick),
+  );
+}
+
 export function useOnboarding() {
   const initialized = useAppStore((s) => s.initialized);
   const agents = useAppStore((s) => s.agents);
 
-  const [shouldShow, setShouldShow] = useState(false);
-  const [forcedOpen, setForcedOpen] = useState(false);
+  // Re-renders when storage events fire. The actual values are read
+  // synchronously below — no mirrored state to drift.
+  useSyncExternalStore(subscribeStorage, getStorageSnapshot, getStorageSnapshot);
 
-  const recompute = useCallback(() => {
-    if (!initialized) {
-      setShouldShow(false);
-      return;
-    }
-    if (forcedOpen) {
-      setShouldShow(true);
-      return;
-    }
-    if (isOnboardingComplete()) {
-      setShouldShow(false);
-      return;
-    }
-    const noAgents = !Array.isArray(agents) || agents.length === 0;
-    const noKey = !hasAnyProviderKey();
-    setShouldShow(noAgents && noKey);
-  }, [initialized, agents, forcedOpen]);
+  // Per-session "I don't want to see this right now" flag. Reload clears it.
+  const [dismissedThisSession, setDismissedThisSession] = useState(false);
 
-  useEffect(() => {
-    recompute();
-  }, [recompute]);
-
-  useEffect(() => {
-    const onUpdate = () => recompute();
-    window.addEventListener('storage', onUpdate);
-    window.addEventListener('apikey-updated', onUpdate);
-    window.addEventListener('settings-updated', onUpdate);
-    window.addEventListener('onboarding-completed', onUpdate);
-    return () => {
-      window.removeEventListener('storage', onUpdate);
-      window.removeEventListener('apikey-updated', onUpdate);
-      window.removeEventListener('settings-updated', onUpdate);
-      window.removeEventListener('onboarding-completed', onUpdate);
-    };
-  }, [recompute]);
+  const shouldShow =
+    initialized &&
+    !dismissedThisSession &&
+    !isOnboardingComplete() &&
+    (!Array.isArray(agents) || agents.length === 0) &&
+    !hasAnyProviderKey();
 
   const completeOnboarding = useCallback(() => {
     try {
@@ -90,29 +97,27 @@ export function useOnboarding() {
     } catch (err) {
       console.error('Failed to persist onboarding completion:', err);
     }
-    setForcedOpen(false);
-    setShouldShow(false);
     window.dispatchEvent(new CustomEvent('onboarding-completed'));
-  }, []);
-
-  // Allow the user to re-open onboarding manually (e.g. from Settings).
-  const openOnboarding = useCallback(() => {
-    setForcedOpen(true);
-    setShouldShow(true);
   }, []);
 
   // Skip without marking complete — onboarding will reappear next launch
   // unless the user has since added a key or created an agent. This is the
   // graceful escape hatch when the modal is in the way.
   const dismissOnboarding = useCallback(() => {
-    setForcedOpen(false);
-    setShouldShow(false);
+    setDismissedThisSession(true);
   }, []);
+
+  // Reset the dismissal once onboarding is genuinely complete so an
+  // explicit re-open later isn't blocked by a stale flag.
+  useEffect(() => {
+    if (isOnboardingComplete() && dismissedThisSession) {
+      setDismissedThisSession(false);
+    }
+  }, [dismissedThisSession]);
 
   return {
     shouldShow,
     completeOnboarding,
-    openOnboarding,
     dismissOnboarding,
     isComplete: isOnboardingComplete(),
   };
