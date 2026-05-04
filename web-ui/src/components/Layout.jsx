@@ -110,7 +110,7 @@ function Layout({ children }) {
     });
   };
 
-  const { hasApiKey, openModal } = useAttentionRequired();
+  const { hasProvider, openModal } = useAttentionRequired();
 
   // Global keyboard shortcuts.
   // Editing-context guard: most shortcuts (especially Alt+letter ones)
@@ -256,8 +256,12 @@ function Layout({ children }) {
             </div>
           </div>
 
-          {/* API Key Missing Warning */}
-          {!hasApiKey && (
+          {/* Provider missing warning — only shown when NO provider is
+              usable: no cloud key, Ollama not running or empty, and the
+              user has not chosen to defer. A user who picks Ollama and
+              has a model installed satisfies hasProvider, so this
+              warning stays hidden. */}
+          {!hasProvider && (
             <button
               onClick={openModal}
               className="flex items-center text-sm mt-2 w-full text-left group"
