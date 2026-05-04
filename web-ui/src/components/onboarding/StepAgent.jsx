@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowPathIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
   SparklesIcon,
@@ -8,6 +9,10 @@ import { useAppStore } from '../../stores/appStore.js';
 import { useModelsStore } from '../../stores/modelsStore.js';
 import LoadingSpinner from '../LoadingSpinner.jsx';
 import { getProvider, pickDefaultModel } from './providers.js';
+
+// Tiny, fast Ollama model that's friendly to first-time installs. Used as
+// the suggested `ollama pull` target in the empty-state guidance.
+const SUGGESTED_OLLAMA_MODEL = 'qwen2.5:1.5b';
 
 const DEFAULT_AGENT_NAME = 'General Assistant';
 const DEFAULT_SYSTEM_PROMPT =
@@ -54,6 +59,7 @@ function StepAgent({ providerId, providerModels, onBack, onCreated }) {
   );
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
+  const [refreshingOllama, setRefreshingOllama] = useState(false);
 
   useEffect(() => {
     if (!provider) return;
@@ -68,6 +74,18 @@ function StepAgent({ providerId, providerModels, onBack, onCreated }) {
   if (!provider) return null;
 
   const noOllamaModels = !provider.cloud && effectiveModels.length === 0;
+
+  // "I installed a model" — reach back to the local Ollama daemon and
+  // refetch the model list so the empty state can resolve without forcing
+  // the user to restart the wizard.
+  const handleRefreshOllama = async () => {
+    setRefreshingOllama(true);
+    try {
+      await fetchOllamaModels();
+    } finally {
+      setRefreshingOllama(false);
+    }
+  };
 
   const handleCreate = async () => {
     setError(null);
@@ -115,17 +133,39 @@ function StepAgent({ providerId, providerModels, onBack, onCreated }) {
         </div>
 
         {noOllamaModels ? (
-          <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm flex items-start gap-2">
-            <ExclamationTriangleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <div>
-              <div className="font-medium">No local Ollama models found.</div>
-              <div className="text-xs mt-1">
-                Pull a model from your terminal first — for example{' '}
-                <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">
-                  ollama pull llama3.1
-                </code>{' '}
-                — then return here. You can also pull models from Settings → Ollama.
+          <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm">
+            <div className="flex items-start gap-2">
+              <ExclamationTriangleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-medium">No local models found.</div>
+                <div className="text-xs mt-1">Run this in your terminal, then click refresh:</div>
+                <pre className="mt-2 px-2 py-1.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 text-xs font-mono overflow-x-auto">
+                  ollama pull {SUGGESTED_OLLAMA_MODEL}
+                </pre>
+                <p className="text-xs mt-2 opacity-80">
+                  You can also pull models from Settings → Ollama.
+                </p>
               </div>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={handleRefreshOllama}
+                disabled={refreshingOllama}
+                className="inline-flex items-center px-3 py-1.5 rounded-md bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-100 text-xs font-medium disabled:opacity-50"
+              >
+                {refreshingOllama ? (
+                  <>
+                    <LoadingSpinner size="sm" className="mr-1.5" />
+                    Refreshing...
+                  </>
+                ) : (
+                  <>
+                    <ArrowPathIcon className="w-3.5 h-3.5 mr-1.5" />
+                    I installed a model
+                  </>
+                )}
+              </button>
             </div>
           </div>
         ) : (
