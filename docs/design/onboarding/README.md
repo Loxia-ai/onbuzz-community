@@ -237,6 +237,33 @@ Edge cases:
   via `utils/providerKeySkip.js` so the post-onboarding
   `AttentionRequiredModal` does not re-prompt for the same thing.
 
+## Provider-usable detection
+
+`useAttentionRequired` evaluates the **Provider Key Required** issue
+against a unified rule. The issue (and the sidebar's "Provider key
+missing" warning) only fires when **none** of these are true:
+
+1. `loxia-settings.apiKeys.<id>` has a non-empty cloud vendor key
+   (openai, anthropic, gemini, xai), OR
+2. `loxia-provider-key-skipped` is set (explicit defer from onboarding
+   step 2 or the modal itself), OR
+3. **Ollama is usable**: enabled in `loxia-ollama-settings` (default
+   true), the local daemon is reachable
+   (`useModelsStore.ollamaAvailable`), and at least one model is
+   installed (`useModelsStore.ollamaModels.length > 0`).
+
+The hook subscribes to `useModelsStore` so the issue clears as soon as
+Ollama state flips usable — no manual refresh required. During the
+brief window before `modelsStore.lastFetched` is set we suppress the
+issue entirely so the modal does not flash open and immediately close
+on first load.
+
+The hook surfaces two booleans for callers:
+
+- `hasApiKey` — narrow: "do we have a cloud vendor key?"
+- `hasProvider` — broad: "is any provider usable?" (the sidebar uses
+  this; a user on Ollama with a model satisfies it).
+
 ## Consistent skip across the app
 
 Skipping is a single concept with one persistent flag
