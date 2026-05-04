@@ -1,0 +1,275 @@
+import React, { useEffect, useState } from 'react';
+import {
+  EyeIcon,
+  EyeSlashIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
+} from '@heroicons/react/24/outline';
+import { api } from '../../services/api.js';
+import { useAppStore } from '../../stores/appStore.js';
+import LoadingSpinner from '../LoadingSpinner.jsx';
+import { getProvider, testCloudProvider, testOllama } from './providers.js';
+
+const SETTINGS_STORAGE_KEY = 'loxia-settings';
+const OLLAMA_SETTINGS_KEY = 'loxia-ollama-settings';
+
+/**
+ * Step 2 — collect and verify the connection for the chosen provider.
+ *
+ * Cloud providers: input field + "Test connection" that calls the
+ * provider's models endpoint. Successful tests persist the key locally
+ * (loxia-settings) and to the backend session (api.setApiKeys), then
+ * forward the model list to the parent so step 3 can pick a default.
+ *
+ * Ollama: no key field — just a host input + reachability check that
+ * lists installed models.
+ */
+function StepConnect({ providerId, onBack, onConnected }) {
+  const provider = getProvider(providerId);
+  const sessionId = useAppStore((s) => s.sessionId);
+
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [host, setHost] = useState('http://localhost:11434');
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState(null); // { ok, message, models? }
+  const [saving, setSaving] = useState(false);
+
+  // Pre-fill any existing key/host so the user doesn't re-type.
+  useEffect(() => {
+    if (!provider) return;
+    try {
+      if (provider.cloud) {
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const existing = parsed?.apiKeys?.[provider.id];
+          if (typeof existing === 'string') setApiKey(existing);
+        }
+      } else {
+        const raw = localStorage.getItem(OLLAMA_SETTINGS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.host) setHost(parsed.host);
+        }
+      }
+    } catch {
+      /* ignore parse errors — defaults are fine */
+    }
+    setResult(null);
+  }, [provider]);
+
+  if (!provider) return null;
+
+  const handleTest = async () => {
+    setTesting(true);
+    setResult(null);
+    const r = provider.cloud
+      ? await testCloudProvider(provider.id, apiKey)
+      : await testOllama(host);
+    setResult(r);
+    setTesting(false);
+  };
+
+  // After a successful test, persist the connection and hand off to step 3.
+  // Persistence:
+  //   - Cloud → loxia-settings (used by AttentionRequiredModal et al.)
+  //              + backend session via api.setApiKeys
+  //   - Ollama → loxia-ollama-settings + backend via api.updateOllamaSettings
+  const handleSaveAndContinue = async () => {
+    if (!result?.ok) return;
+    setSaving(true);
+    try {
+      if (provider.cloud) {
+        const trimmed = apiKey.trim();
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        const existing = raw ? JSON.parse(raw) : {};
+        const next = {
+          ...existing,
+          apiKeys: { ...(existing.apiKeys || {}), [provider.id]: trimmed },
+        };
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
+        try {
+          await api.setApiKeys(sessionId || null, { vendorKeys: { [provider.id]: trimmed } });
+        } catch (err) {
+          // Non-fatal: the local copy is saved, the agent step can still
+          // proceed via the backend's localStorage rehydrate path.
+          console.warn('Backend key sync failed (continuing):', err);
+        }
+        window.dispatchEvent(new CustomEvent('apikey-updated'));
+        window.dispatchEvent(new CustomEvent('settings-updated'));
+      } else {
+        localStorage.setItem(
+          OLLAMA_SETTINGS_KEY,
+          JSON.stringify({ host: host.trim(), enabled: true }),
+        );
+        try {
+          await api.updateOllamaSettings({ host: host.trim(), enabled: true });
+        } catch (err) {
+          console.warn('Ollama settings sync failed (continuing):', err);
+        }
+      }
+      onConnected({ providerId: provider.id, models: result.models || [] });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-5">
+        {provider.cloud
+          ? 'Your key is stored locally and used only to contact the provider.'
+          : 'OnBuzz will connect to Ollama on this machine. No API key required.'}
+      </p>
+
+      {provider.cloud ? (
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            {provider.label} API key
+          </label>
+          <div className="relative">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setResult(null);
+              }}
+              placeholder={provider.placeholder}
+              className="input-primary pr-10 w-full"
+              data-clarity-mask="always"
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              className="absolute inset-y-0 right-0 pr-3 flex items-center"
+              aria-label={showApiKey ? 'Hide key' : 'Show key'}
+            >
+              {showApiKey ? (
+                <EyeSlashIcon className="w-4 h-4 text-gray-400" />
+              ) : (
+                <EyeIcon className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+          </div>
+          {provider.keyHelpUrl && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Need a key?{' '}
+              <a
+                href={provider.keyHelpUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-loxia-600 dark:text-loxia-400 hover:underline"
+              >
+                Open the {provider.label} dashboard
+              </a>
+              .
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Ollama host
+          </label>
+          <input
+            type="text"
+            value={host}
+            onChange={(e) => {
+              setHost(e.target.value);
+              setResult(null);
+            }}
+            placeholder="http://localhost:11434"
+            className="input-primary w-full"
+            autoFocus
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Default works for most setups. Install Ollama from{' '}
+            <a
+              href={provider.keyHelpUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-loxia-600 dark:text-loxia-400 hover:underline"
+            >
+              ollama.com
+            </a>{' '}
+            if you have not already.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={handleTest}
+          disabled={testing || (provider.cloud && !apiKey.trim())}
+          className="button-secondary disabled:opacity-50"
+        >
+          {testing ? (
+            <span className="inline-flex items-center">
+              <LoadingSpinner size="sm" className="mr-2" />
+              Testing...
+            </span>
+          ) : (
+            'Test connection'
+          )}
+        </button>
+      </div>
+
+      {result && (
+        <div
+          className={`mt-4 flex items-start gap-2 p-3 rounded-lg text-sm ${
+            result.ok
+              ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200'
+              : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'
+          }`}
+        >
+          {result.ok ? (
+            <CheckCircleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          ) : (
+            <ExclamationCircleIcon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          )}
+          <div>
+            {result.ok ? (
+              <>
+                <div className="font-medium">Connection test passed.</div>
+                <div className="text-xs opacity-80">
+                  {Array.isArray(result.models) && result.models.length > 0
+                    ? `${result.models.length} model${result.models.length === 1 ? '' : 's'} available.`
+                    : 'No models reported — you can still continue.'}
+                </div>
+              </>
+            ) : (
+              <div>{result.message || 'We could not reach this provider. Check the key and try again.'}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6 flex justify-between">
+        <button type="button" onClick={onBack} className="button-secondary" disabled={saving}>
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={handleSaveAndContinue}
+          disabled={!result?.ok || saving}
+          className="button-primary disabled:opacity-50"
+        >
+          {saving ? (
+            <span className="inline-flex items-center">
+              <LoadingSpinner size="sm" className="mr-2" />
+              Saving...
+            </span>
+          ) : (
+            'Continue'
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default StepConnect;
