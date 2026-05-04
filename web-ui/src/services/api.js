@@ -348,6 +348,16 @@ class ApiClient {
     });
   }
 
+  // Verify a provider key by listing models server-side. Used by the
+  // onboarding wizard. Returns { ok, models?, message? } — never throws
+  // for predictable failures (bad key, network timeout, unreachable).
+  async testProviderConnection({ provider, apiKey, host }) {
+    return this.request('/providers/test', {
+      method: 'POST',
+      body: { provider, apiKey, host }
+    });
+  }
+
   async getApiKeyStatus(sessionId) {
     return this.request(`/keys/${sessionId}`);
   }

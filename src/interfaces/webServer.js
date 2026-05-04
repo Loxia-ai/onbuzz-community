@@ -1443,6 +1443,27 @@ class WebServer {
       }
     });
     
+    // Test a provider connection (used by the onboarding wizard).
+    // Verifies the supplied API key by listing models from the provider's
+    // REST endpoint. Keys are NOT stored — the caller still has to POST
+    // them to /api/keys. Routing this through the backend avoids per-
+    // provider CORS quirks and keeps keys off the wire to third parties
+    // from the browser context.
+    this.app.post('/api/providers/test', async (req, res) => {
+      try {
+        const { provider, apiKey, host } = req.body || {};
+        const { testProviderConnection } = await import('../services/providerTester.js');
+        const result = await testProviderConnection({ provider, apiKey, host });
+        // Always 200 — the body's `ok` flag is the success signal. This
+        // keeps the frontend logic uniform: a network error from us is
+        // genuinely exceptional and stays a 5xx.
+        res.json(result);
+      } catch (error) {
+        this.logger.error('Provider test failed', { error: error.message });
+        res.status(500).json({ ok: false, message: error.message });
+      }
+    });
+
     // Get active sessions with API keys (admin endpoint)
     this.app.get('/api/keys', async (req, res) => {
       try {
