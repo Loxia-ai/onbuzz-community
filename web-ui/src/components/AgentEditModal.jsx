@@ -8,7 +8,6 @@ import {
   ArchiveBoxIcon
 } from '@heroicons/react/24/outline';
 import { useAppStore } from '../stores/appStore.js';
-import { useModelsStore } from '../stores/modelsStore.js';
 import LoadingSpinner from './LoadingSpinner.jsx';
 import FolderPicker from './FolderPicker.jsx';
 import DirectoryArrayPicker from './DirectoryArrayPicker.jsx';
@@ -19,11 +18,10 @@ import ToolConfigModal from './toolConfig/ToolConfigModal.jsx';
 import { hasConfigurator } from './toolConfig/registry.js';
 import MemoryManagementTab from './MemoryManagementTab.jsx';
 import { withoutOptInOnly } from '../constants/toolConstants.js';
-import { providerLabel } from '../utilities/providerBadge.js';
+import ModelPicker from './ModelPicker.jsx';
 
 function AgentEditModal({ agent, onClose, onSuccess }) {
   const { updateAgent, loading } = useAppStore();
-  const { getModelsByCategory } = useModelsStore();
 
   const [formData, setFormData] = useState({
     name: agent?.name || '',
@@ -66,14 +64,6 @@ function AgentEditModal({ agent, onClose, onSuccess }) {
     ));
   }, [availableTools, toolSearch]);
 
-  const modelCategories = getModelsByCategory();
-  // Store keys are `cloud` and `local` (see modelsStore.getModelsByCategory).
-  // Earlier code referenced `platform`/`direct` which don't exist — that
-  // crashed the picker on render. Defensive fallbacks keep this resilient
-  // if the store shape changes again.
-  const cloudModels = modelCategories.cloud?.models || [];
-  const localModels = modelCategories.local?.models || [];
-  const allModels = [...cloudModels, ...localModels];
 
   useEffect(() => {
     if (agent) {
@@ -348,34 +338,12 @@ function AgentEditModal({ agent, onClose, onSuccess }) {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Language Model
                   </label>
-                  <select
+                  <ModelPicker
                     value={formData.model}
-                    onChange={(e) => handleInputChange('model', e.target.value)}
-                    className={`input-primary ${errors.model ? 'border-red-500' : ''}`}
+                    onChange={(id) => handleInputChange('model', id)}
                     disabled={isSubmitting}
-                  >
-                    <option value="">Select a model...</option>
-                    {/*
-                     * Native <option> can only contain text, so the provider
-                     * "chip" here is rendered as a ` · <Provider>` suffix.
-                     * The creation modal uses a custom card grid and shows
-                     * the same information as a styled pill.
-                     */}
-                    <optgroup label="Cloud Providers">
-                      {cloudModels.map((model) => (
-                        <option key={model.id} value={model.modelName}>
-                          {model.displayName} · {providerLabel(model.provider)}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Local Models (Ollama)">
-                      {localModels.map((model) => (
-                        <option key={model.id} value={model.modelName}>
-                          {model.displayName} · {providerLabel(model.provider)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
+                    idPrefix="agent-edit-model"
+                  />
                   {errors.model && (
                     <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.model}</p>
                   )}
