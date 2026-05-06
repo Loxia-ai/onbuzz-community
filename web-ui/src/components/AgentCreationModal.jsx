@@ -27,6 +27,7 @@ import {
   resolvePreferredModel
 } from '../constants/index.js';
 import { withoutOptInOnly } from '../constants/toolConstants.js';
+import { providerLabel, providerBadgeClass } from '../utilities/providerBadge.js';
 
 // Name bank for auto-generated agent names
 const AGENT_NAME_BANK = [
@@ -679,9 +680,12 @@ function AgentCreationModal({ onClose, onSuccess, sourceAgent = null }) {
                                 ? 'border-gray-200 dark:border-gray-700 opacity-40'
                                 : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                             }`}>
-                              <div className="flex items-center justify-center gap-1">
+                              <div className="flex items-center justify-center gap-1 flex-wrap">
                                 <span className={`text-sm font-medium ${isSelected ? 'text-loxia-700 dark:text-loxia-300' : 'text-gray-900 dark:text-gray-100'}`}>
                                   {displayName}
+                                </span>
+                                <span className={providerBadgeClass(model.provider)}>
+                                  {providerLabel(model.provider)}
                                 </span>
                                 {model.features?.supportsVision && (
                                   <span className="px-1 py-0.5 text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded">

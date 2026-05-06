@@ -1,0 +1,57 @@
+/**
+ * providerBadge — display helpers for the provider chip shown next to model
+ * names in the agent modals. One source of truth so future pickers (settings
+ * page, sidebar, etc.) don't end up with three slightly-different mappings.
+ *
+ * Keep this file dependency-free — it's pure data + Tailwind class strings.
+ */
+
+const LABELS = {
+  openai:    'OpenAI',
+  anthropic: 'Anthropic',
+  gemini:    'Gemini',
+  xai:       'xAI',
+  ollama:    'Ollama',
+};
+
+/**
+ * Human-readable provider label for the chip. Unknown ids (e.g. a user's
+ * custom OpenAI-compatible endpoint name) are returned with the first
+ * letter uppercased — better than rendering an empty chip.
+ *
+ * @param {string|undefined|null} id
+ * @returns {string}
+ */
+export function providerLabel(id) {
+  if (!id || typeof id !== 'string') return 'Unknown';
+  if (LABELS[id]) return LABELS[id];
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+// Subtle accent border per provider; neutral background works in both
+// themes. Tailwind classes are inlined so the JIT picker keeps them.
+const BADGE_BASE =
+  'inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] ' +
+  'font-medium leading-none whitespace-nowrap ' +
+  'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 ' +
+  'border';
+
+const ACCENT = {
+  openai:    'border-emerald-300 dark:border-emerald-700/60',
+  anthropic: 'border-orange-300 dark:border-orange-700/60',
+  gemini:    'border-blue-300 dark:border-blue-700/60',
+  xai:       'border-slate-400 dark:border-slate-500/60',
+  ollama:    'border-purple-300 dark:border-purple-700/60',
+};
+
+/**
+ * Tailwind class string for the chip. Includes base pill styling plus a
+ * provider-specific border accent.
+ *
+ * @param {string|undefined|null} id
+ * @returns {string}
+ */
+export function providerBadgeClass(id) {
+  const accent = ACCENT[id] || 'border-gray-300 dark:border-gray-600';
+  return `${BADGE_BASE} ${accent}`;
+}

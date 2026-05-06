@@ -19,6 +19,7 @@ import ToolConfigModal from './toolConfig/ToolConfigModal.jsx';
 import { hasConfigurator } from './toolConfig/registry.js';
 import MemoryManagementTab from './MemoryManagementTab.jsx';
 import { withoutOptInOnly } from '../constants/toolConstants.js';
+import { providerLabel } from '../utilities/providerBadge.js';
 
 function AgentEditModal({ agent, onClose, onSuccess }) {
   const { updateAgent, loading } = useAppStore();
@@ -66,10 +67,13 @@ function AgentEditModal({ agent, onClose, onSuccess }) {
   }, [availableTools, toolSearch]);
 
   const modelCategories = getModelsByCategory();
-  const allModels = [
-    ...modelCategories.platform.models,
-    ...modelCategories.direct.models
-  ];
+  // Store keys are `cloud` and `local` (see modelsStore.getModelsByCategory).
+  // Earlier code referenced `platform`/`direct` which don't exist — that
+  // crashed the picker on render. Defensive fallbacks keep this resilient
+  // if the store shape changes again.
+  const cloudModels = modelCategories.cloud?.models || [];
+  const localModels = modelCategories.local?.models || [];
+  const allModels = [...cloudModels, ...localModels];
 
   useEffect(() => {
     if (agent) {
@@ -351,17 +355,23 @@ function AgentEditModal({ agent, onClose, onSuccess }) {
                     disabled={isSubmitting}
                   >
                     <option value="">Select a model...</option>
-                    <optgroup label="Platform Models">
-                      {modelCategories.platform.models.map((model) => (
+                    {/*
+                     * Native <option> can only contain text, so the provider
+                     * "chip" here is rendered as a ` · <Provider>` suffix.
+                     * The creation modal uses a custom card grid and shows
+                     * the same information as a styled pill.
+                     */}
+                    <optgroup label="Cloud Providers">
+                      {cloudModels.map((model) => (
                         <option key={model.id} value={model.modelName}>
-                          {model.displayName}
+                          {model.displayName} · {providerLabel(model.provider)}
                         </option>
                       ))}
                     </optgroup>
-                    <optgroup label="Direct Models">
-                      {modelCategories.direct.models.map((model) => (
+                    <optgroup label="Local Models (Ollama)">
+                      {localModels.map((model) => (
                         <option key={model.id} value={model.modelName}>
-                          {model.displayName}
+                          {model.displayName} · {providerLabel(model.provider)}
                         </option>
                       ))}
                     </optgroup>
