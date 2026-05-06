@@ -8,9 +8,29 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg?style=flat-square)](https://nodejs.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](./CONTRIBUTING.md)
 
+### 🌐 **[onbuzz.loxia.ai](https://onbuzz.loxia.ai)** &nbsp;·&nbsp; 🎓 **[Training](https://onbuzz.loxia.ai/training)** &nbsp;·&nbsp; 🗺 **[Roadmap & task board](https://roadmap.onbuzz.loxia.ai/)**
+
+**👉 New here? Start with the [official site](https://onbuzz.loxia.ai) and the [training program](https://onbuzz.loxia.ai/training).**
+**👉 Want to contribute? Check the [public roadmap](https://roadmap.onbuzz.loxia.ai/) for open tasks.**
+
 [Quick Start](#-quick-start) · [What it does](#-what-it-does) · [Why it's different](#-why-its-different) · [Use cases](#-example-use-cases) · [Contribute](#-contributing)
 
 </div>
+
+---
+
+> ## 🎯 Where to go first
+>
+> | | |
+> |---|---|
+> | 🌐 **Official site** | **[onbuzz.loxia.ai](https://onbuzz.loxia.ai)** — downloads, news, showcase |
+> | 🎓 **Training** | **[onbuzz.loxia.ai/training](https://onbuzz.loxia.ai/training)** — learn how to drive a fleet of agents end-to-end |
+> | 🗺 **Roadmap & task board** | **[roadmap.onbuzz.loxia.ai](https://roadmap.onbuzz.loxia.ai/)** — what's planned, in flight, and open for contributors |
+> | 📦 **Releases** | **[github.com/Loxia-ai/onbuzz-community/releases](https://github.com/Loxia-ai/onbuzz-community/releases)** — installers, binaries, and Electron desktop apps |
+>
+> **If you're trying OnBuzz for the first time**, go to **[onbuzz.loxia.ai/training](https://onbuzz.loxia.ai/training)**. The training walks you through your first agent, your first flow, and your first multi-agent collaboration in under 30 minutes.
+>
+> **If you want to contribute**, head to **[roadmap.onbuzz.loxia.ai](https://roadmap.onbuzz.loxia.ai/)** to find a task to claim, then read [CONTRIBUTING.md](./CONTRIBUTING.md) for the workflow.
 
 ---
 
@@ -56,13 +76,17 @@ It also ships with **20+ built-in agent tools** for real software work:
 
 ## 🚀 Quick start
 
+> 💡 **Prefer a guided walkthrough?** The **[training program at onbuzz.loxia.ai/training](https://onbuzz.loxia.ai/training)** runs you through these steps with screen recordings, troubleshooting tips, and recipe templates. Recommended for first-time users.
+
 ### 1. Install
 
 ```bash
 npm install -g onbuzz-community
 ```
 
-(Requires Node.js ≥ 20.)
+Or grab a pre-built installer / binary from **[github.com/Loxia-ai/onbuzz-community/releases](https://github.com/Loxia-ai/onbuzz-community/releases)** (Windows, macOS, Linux — CLI, native installer, or Electron desktop app).
+
+(Requires Node.js ≥ 20 if installing via npm.)
 
 ### 2. Add a provider key
 
@@ -147,9 +171,14 @@ For per-provider details (auth headers, special models, OpenAI-compatible custom
 
 OnBuzz Community is open to contributions of every size — bug fixes, new tools, new provider adapters, docs, examples, or "I tried this and the install was confusing" feedback.
 
-Start here: **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+**The contribution path:**
+1. **Find a task** on the **[public roadmap & task board](https://roadmap.onbuzz.loxia.ai/)**, or browse the [12-week dev program](./docs/COMMUNITY_PROGRAM.md).
+2. **Claim it** by commenting on the linked issue.
+3. **Read [CONTRIBUTING.md](./CONTRIBUTING.md)** for the full workflow — fork → branch → PR → review → squash-merge, with details on branch naming, Conventional Commits, rebasing, and code-review etiquette.
 
-Looking for a first thing to work on? We've curated a handful of good-first-issues in [`docs/GOOD_FIRST_ISSUES.md`](./docs/GOOD_FIRST_ISSUES.md). They're real, scoped pieces of work — pick one, comment on the matching issue, and we'll help you get it merged.
+Looking for a first thing to work on? Our **[12-week community program](./docs/COMMUNITY_PROGRAM.md)** is a menu of 48 fully-specified tasks — each with context, a definition-of-done, deliverables, and pointers into the codebase. Daily tasks are sized for a single sitting; weekly capstones are larger pieces of work. Audience tracks span developers, designers, writers, QA, security, DevOps, data scientists, localizers, DevRel, accessibility advocates, visual designers, and domain experts.
+
+Not a developer? Your domain knowledge is exactly what we need. **[`docs/RECIPES_BY_FIELD.md`](./docs/RECIPES_BY_FIELD.md)** has a deep menu of contribution ideas for teachers, clinicians, accountants, content creators, novelists, real estate agents, lawyers, restaurant owners, GMs, and many more — none of which require writing code.
 
 If you find a security issue, please don't file a public issue — email `contact@loxia.ai` instead.
 
@@ -175,6 +204,8 @@ OnBuzz Community is forked from the proprietary Loxia Autopilot codebase. The co
 ---
 
 <div align="center">
+
+### 🌐 **[onbuzz.loxia.ai](https://onbuzz.loxia.ai)** &nbsp;·&nbsp; 🎓 **[Training](https://onbuzz.loxia.ai/training)** &nbsp;·&nbsp; 🗺 **[Roadmap](https://roadmap.onbuzz.loxia.ai/)** &nbsp;·&nbsp; 📦 **[Releases](https://github.com/Loxia-ai/onbuzz-community/releases)**
 
 **Made with care, shipped under Apache-2.0.**
 [Discussions](https://github.com/Loxia-ai/onbuzz-community/discussions) · [Issues](https://github.com/Loxia-ai/onbuzz-community/issues) · [Provider docs](./docs/PROVIDERS.md)

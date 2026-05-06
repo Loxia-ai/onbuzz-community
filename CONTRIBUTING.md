@@ -1,11 +1,24 @@
 # Contributing to OnBuzz Community
 
-Thanks for considering it. OnBuzz Community lives or dies by its contributors, and we want it to be easy to land your first PR. This doc is short on purpose — read it once, then send code.
+Thanks for being here. **Your first PR can land this week.** This doc is short on purpose — read it once, then send code.
 
-## Table of contents
+> ## 🚦 Start here
+>
+> | | |
+> |---|---|
+> | 🗺 **Roadmap & task board** | **[roadmap.onbuzz.loxia.ai](https://roadmap.onbuzz.loxia.ai/)** — pick a task, claim it, ship it |
+> | 🌐 **Project site** | **[onbuzz.loxia.ai](https://onbuzz.loxia.ai)** |
+> | 🎓 **Training** | **[onbuzz.loxia.ai/training](https://onbuzz.loxia.ai/training)** — recommended for first-timers |
+> | 📅 **12-week dev program** | [`docs/COMMUNITY_PROGRAM.md`](./docs/COMMUNITY_PROGRAM.md) — 48 ready-to-claim tasks |
+> | 💬 **Discussions** | [github.com/Loxia-ai/onbuzz-community/discussions](https://github.com/Loxia-ai/onbuzz-community/discussions) |
 
-- [How to start](#how-to-start)
-- [How to submit a PR](#how-to-submit-a-pr)
+## Contents
+
+- [Run it locally](#run-it-locally)
+- [The PR workflow](#the-pr-workflow)
+- [Branches and commit messages](#branches-and-commit-messages)
+- [Code review](#code-review)
+- [Pre-flight checklist](#pre-flight-checklist)
 - [What we're looking for](#what-were-looking-for)
 - [Coding guidelines](#coding-guidelines)
 - [Adding a new LLM provider](#adding-a-new-llm-provider)
@@ -13,153 +26,243 @@ Thanks for considering it. OnBuzz Community lives or dies by its contributors, a
 
 ---
 
-## How to start
+## Run it locally
 
 ```bash
 git clone https://github.com/Loxia-ai/onbuzz-community.git
 cd onbuzz-community
 npm install --legacy-peer-deps
-npm run build:web-ui          # only needed if you change the React UI
-node bin/cli.js web           # boots the local server + opens the browser
+node bin/cli.js web        # boots the local server + opens the browser
 ```
 
-You'll need **Node.js ≥ 20**. macOS, Linux, and Windows are all supported.
-
-To run the test suite:
+Requires **Node.js ≥ 20**. macOS, Linux, Windows all supported.
 
 ```bash
-NODE_OPTIONS='--experimental-vm-modules' npm test
+NODE_OPTIONS='--experimental-vm-modules' npm test                 # full suite
+NODE_OPTIONS='--experimental-vm-modules' npx jest <file>          # single file
+npm run lint                                                       # ESLint
+npm run build:web-ui                                               # if you touched the UI
 ```
 
-To run a single test file:
+If something doesn't build or tests don't run, **that's worth filing as an issue** — your first 30 minutes should be smooth.
 
-```bash
-NODE_OPTIONS='--experimental-vm-modules' npx jest src/services/providers/__tests__/providers.contract.test.js
-```
-
-If something doesn't build or tests don't run, **that itself is worth filing as an issue** — the install and dev-loop should be smooth, and a stumble in your first 30 minutes is a real signal we want to fix.
-
-### Architecture quick tour
-
-So you know where things live before you start hunting:
+### Where things live
 
 | Path | What's there |
 |---|---|
-| `src/index.js` | Application entry — wires every component together. Read it first. |
-| `src/core/` | Orchestrator, agent pool, scheduler, message processor, flow executor. The "brain". |
-| `src/services/aiService.js` | Dispatcher that routes a chat request to the right provider. |
-| `src/services/providers/` | One adapter per LLM vendor (`openaiProvider.js`, `anthropicProvider.js`, etc.) — see [`docs/PROVIDERS.md`](./docs/PROVIDERS.md). |
-| `src/tools/` | Agent-facing tools. Each extends `BaseTool` and is registered in `src/index.js`. |
-| `src/interfaces/webServer.js` | Express + WebSocket server backing the web and terminal UIs. |
-| `web-ui/` | React frontend (Vite). |
-| `config/` | Default JSON manifests (models, benchmarks). User-overridable. |
-| `.github/workflows/` | CI: builds binaries + installers + Electron app on tag pushes. |
+| `src/index.js` | Application entry — read it first |
+| `src/core/` | Orchestrator, agent pool, scheduler, flow executor |
+| `src/services/aiService.js` | Provider dispatcher |
+| `src/services/providers/` | One adapter per LLM vendor — see [`docs/PROVIDERS.md`](./docs/PROVIDERS.md) |
+| `src/tools/` | Agent-facing tools (each extends `BaseTool`) |
+| `src/interfaces/webServer.js` | Express + WebSocket server |
+| `web-ui/` | React frontend (Vite) |
+| `config/` | Default JSON manifests (models, benchmarks) |
 
 ---
 
-## How to submit a PR
+## The PR workflow
 
-We aim to keep this lightweight. Concretely:
+We use **GitHub Flow**: fork → feature branch → PR → review → squash-merge. `main` is always shippable. There is no `develop` branch.
 
-1. **Open an issue first** for anything bigger than a one-liner. Saves you from writing code in a direction we'd ask to rework. Link to the issue in your PR description.
-2. **One concern per PR.** A bug fix and a refactor are two PRs. Reviewers can land focused changes faster.
-3. **Tests for new logic.** If you add a feature or fix a bug, add a test that would have failed before your change. Exception: pure UI layout / styling tweaks.
-4. **Keep diffs small.** Sub-200-line PRs ship in days; 2000-line PRs ship in months. If your change must be big, split it into a stack.
-5. **Check before you push.**
-   ```bash
-   NODE_OPTIONS='--experimental-vm-modules' npm test
-   npm run lint
-   npm run build:web-ui      # if you touched the UI
-   ```
-6. **Write a useful PR description.** Include:
-   - What problem this solves (link the issue).
-   - What you changed and why this approach.
-   - How you tested it (commands you ran, behaviors you verified).
-   - Anything you're unsure about — call it out.
+### 1. Pick or claim a task
 
-We use **squash merges**, so your commit history within a PR doesn't need to be pristine. The PR title becomes the merge commit message — make it descriptive (`fix: anthropic provider drops temperature for opus-4-7+`, not `fix bug`).
+Browse **[roadmap.onbuzz.loxia.ai](https://roadmap.onbuzz.loxia.ai/)** for cards labeled **"Open for contributors"** or **"Help wanted"**, or pick a task from [`docs/COMMUNITY_PROGRAM.md`](./docs/COMMUNITY_PROGRAM.md). Comment on the linked issue to claim it.
+
+Have your own idea? **One-liner fixes** (typo, broken link): just open the PR. **Anything bigger**: open an issue first using the [Contribution idea](https://github.com/Loxia-ai/onbuzz-community/issues/new?template=contribution_idea.yml) template — saves you from building in a direction we'd ask to rework.
+
+### 2. Fork, branch, build
+
+```bash
+# Fork on GitHub, then:
+git clone git@github.com:<you>/onbuzz-community.git
+cd onbuzz-community
+git remote add upstream https://github.com/Loxia-ai/onbuzz-community.git
+
+git checkout -b feat/deepseek-provider     # see naming below
+# ... make small, focused commits, with tests for new logic ...
+```
+
+**One concern per PR.** A fix and a refactor are two PRs.
+**Tests for new logic.** Add a test that would have failed before your change.
+**Keep diffs small.** Sub-200-line PRs ship in days; 2000-line PRs ship in months — split big work into a stack.
+
+### 3. Stay current with `main` — rebase, don't merge
+
+```bash
+git fetch upstream
+git rebase upstream/main
+git push --force-with-lease    # NEVER plain --force
+```
+
+`--force-with-lease` refuses to overwrite work someone else pushed (e.g. a maintainer adding a fixup). Plain `--force` will silently nuke it.
+
+### 4. Open the PR
+
+Push your branch and open the PR against `Loxia-ai/onbuzz-community:main`. **Use Draft mode** while iterating; flip to Ready when you'd like a review.
+
+A useful PR description has four lines:
+- **Problem** — link the issue (`Closes #123`).
+- **Approach** — what you changed and why.
+- **How tested** — commands you ran, behaviors you verified.
+- **Open questions** — things you're unsure about. Reviewers love specifics.
+
+For UI changes: include before/after screenshots or a short recording.
+
+### 5. Pass CI
+
+Every PR runs tests + lint + builds. **Don't ask for review until CI is green.** A red CI is a hard blocker.
+
+### 6. Address review, then merge
+
+- Reply to each thread, even if just "Done".
+- Push **fixup commits** instead of force-pushing — easier for reviewers to see what changed. We squash on merge anyway.
+- Disagree politely if you think a comment is wrong; reviewers can be wrong.
+- Click **"Re-request review"** after pushing changes (reviewers don't watch every push).
+- A maintainer **squash-merges** when the PR is ready. The PR title becomes the commit message — make it [Conventional Commits](#branches-and-commit-messages)-shaped.
+
+---
+
+## Branches and commit messages
+
+**Branch names**: `<type>/<short-kebab-summary>` — e.g. `feat/deepseek-provider`, `fix/anthropic-temperature-opus-4-7`.
+
+**PR titles** follow [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<scope>): <imperative summary>`.
+
+| Prefix | When | Example PR title |
+|---|---|---|
+| `feat` | New user-visible capability | `feat(providers): add DeepSeek native adapter` |
+| `fix` | Bug fix | `fix(anthropic): drop temperature for opus-4-7+` |
+| `docs` | Docs only | `docs(providers): document gemma-* matcher` |
+| `refactor` | Shape change, no behavior change | `refactor(scheduler): event-driven trigger` |
+| `test` | Tests only | `test(providers): contract tests for streaming` |
+| `chore` | Tooling, deps, CI | `chore(deps): upgrade vite to 7` |
+| `perf` | Performance improvement | `perf(flow): cache resolved edge IDs` |
+
+In-PR commits during development can be loose — they get squashed.
+
+For **breaking changes**, add `!` and a footer:
+```
+feat(providers)!: rename matchesModel to matches
+
+BREAKING CHANGE: Custom adapters must rename `matchesModel` to `matches`.
+```
+
+Use `Closes #123` to auto-close the issue, or `Refs #123` to just link.
+
+---
+
+## Code review
+
+We aim for **kind, specific, fast**. Reviews are about the code, not the contributor.
+
+**As a contributor:** push back if you think a reviewer is wrong — silent capitulation isn't useful. If you'll be slow to respond, post a "back to this Friday" note so the PR doesn't look abandoned.
+
+**As a reviewer:** be specific. Label comments **must-fix**, **should-fix**, or **nit** so the contributor knows what blocks merge. Approve when it's good enough to ship — perfection blocks more contributors than it helps.
+
+**Maintainer SLA:** first response on a new PR within **5 business days**, follow-ups within **3**. If we miss this, ping us in [Discussions](https://github.com/Loxia-ai/onbuzz-community/discussions) — that's on us.
+
+---
+
+## Pre-flight checklist
+
+Before flipping the PR to Ready:
+
+- [ ] Branch rebased on latest `upstream/main`
+- [ ] `npm test`, `npm run lint`, `npm run build:web-ui` (if UI touched) all pass locally
+- [ ] CI is green
+- [ ] PR title is Conventional-Commits-shaped
+- [ ] PR description: problem, approach, how-tested, open questions
+- [ ] Issue linked (`Closes #N` or `Refs #N`)
+- [ ] No drive-by formatting on untouched files
+- [ ] Screenshots/recording for any UI change
 
 ---
 
 ## What we're looking for
 
-We welcome contributions in any of these areas:
-
 ### 🛠 Provider adapters & LLM coverage
 - New native providers (DeepSeek, Mistral, Cohere, Perplexity, etc.)
-- Better classification of which models support which features (vision, tools, reasoning)
-- Tighter handling of vendor-specific quirks (rate limits, parameter differences, deprecation)
-- Support for vendor APIs we don't yet wrap (OpenAI Responses API for `gpt-5-pro`, Anthropic batch, Gemini Live, etc.)
+- Better feature classification (vision, tools, reasoning support per model)
+- Vendor-specific quirks: rate limits, parameter differences, deprecation
+- APIs we don't yet wrap (OpenAI Responses API for `gpt-5-pro`, Anthropic batch, Gemini Live)
 
 ### 🧰 Agent tools
-- New tools that fit our charter: local-first, no required cloud service, useful to a real software workflow.
-- Hardening existing tools (better error messages, edge case handling, more tests).
-- Per-tool configurators (the React panels in `web-ui/src/components/toolConfig/`).
+- New tools that fit the charter: local-first, no required cloud, useful to a real workflow
+- Hardening existing tools (better errors, edge cases, more tests)
+- Per-tool configurators in `web-ui/src/components/toolConfig/`
 
-### 🎨 Web UI improvements
-- Onboarding polish (the first 60 seconds matter most).
-- Accessibility — keyboard navigation, screen reader labels, focus traps in modals.
-- Dark mode and theme refinements.
-- Better model picker, agent management, flow editor UX.
+### 🎨 Web UI
+- Onboarding polish (the first 60 seconds matter most)
+- Accessibility — keyboard nav, screen reader labels, focus traps
+- Dark mode and theme refinements
+- Better model picker, agent management, flow editor
 
-### 📚 Documentation & examples
-- Provider setup guides for vendors we don't cover yet.
-- "Build X in OnBuzz" tutorials — long-form examples are gold.
-- Skill examples in the `skills/` directory.
-- Diagrams of the architecture, scheduler behavior, etc.
+### 📚 Docs & examples
+- Provider setup guides for vendors we don't cover yet
+- "Build X in OnBuzz" tutorials — long-form examples are gold
+- Skill examples in `skills/`
+- Architecture diagrams
 
 ### 🐛 Bug fixes
-- Crash reports, regressions, broken edge cases — anything filed in the issue tracker.
-- Tests that pin down behavior we currently rely on but don't verify.
-- Performance issues you've actually measured (not premature optimization).
+- Anything in the issue tracker
+- Tests that pin down behavior we rely on but don't verify
+- Performance issues you've actually measured
 
-### 🤝 First-time contributors
-We mark issues as **`good first issue`** when they're scoped tightly enough to land in a single sitting. See [`docs/GOOD_FIRST_ISSUES.md`](./docs/GOOD_FIRST_ISSUES.md) for the current curated list.
+### 🧰 Non-code contributions
 
-### What we're NOT looking for
+If your background is teaching, healthcare, accounting, content creation, real estate, law, music, writing, office work, or any field that moves information for a living, your most valuable contribution is probably **not** JavaScript. It's an agent recipe that solves a workflow problem only someone in your field knows how to design.
 
-To save you time, here's what we'll likely close:
+We accept and actively want:
+- **Skill PRs** — a reusable agent recipe in `skills/` (system prompt, suggested tools, example conversation). We'll help with the file format.
+- **Prompt libraries** — `.md` files of system-prompt variations for one workflow.
+- **Workflow case studies** — "I'm a [profession], here's how I use OnBuzz daily."
+- **Video walkthroughs** — 3–10 minute screen recordings.
+- **Translations** — UI, errors, docs into your native language.
+- **Tool wishlists** — "this would help my field but doesn't exist yet."
 
-- **Anything that adds a required cloud dependency.** OnBuzz Community is local-first by design. Optional integrations are fine; required server-side services are not.
-- **Telemetry or analytics that phone home.** Even opt-in. The product promise is privacy.
-- **Refactors without a stated motivation.** "I rewrote this to be cleaner" is hard to review. "I rewrote this because X bug class is impossible to express in the current shape" is reviewable.
-- **Speculative abstractions.** Add the abstraction when the third user appears, not the first.
+See [`docs/RECIPES_BY_FIELD.md`](./docs/RECIPES_BY_FIELD.md) for a deep menu by profession (education, healthcare, accounting, books, music, real estate, legal, nonprofit, research, creative fields), with safety/privacy notes for sensitive domains.
+
+### What we'll close
+
+- **Required cloud dependencies.** Local-first is the product promise.
+- **Telemetry that phones home.** Even opt-in.
+- **Refactors without a stated motivation.** "I rewrote this to be cleaner" is hard to review.
+- **Speculative abstractions.** Add the abstraction when the third user appears.
 
 ---
 
 ## Coding guidelines
 
-These are loose. The code already exists; match its tone.
+Loose. Match the tone of the existing code.
 
-- **ES modules, no TypeScript.** JSDoc comments on public functions are appreciated.
-- **Comments explain "why", not "what".** Identifier names already explain "what". Comments earn their keep when the reasoning is non-obvious.
-- **Don't add error handling for impossible states.** Trust internal calls. Validate at boundaries (user input, network responses).
-- **No emojis in code.** They're fine in user-facing strings if requested, but don't decorate identifiers.
-- **Tests:** unit tests in `__tests__` directories next to the code they exercise. Integration / e2e tests use the `.e2e.test.js` suffix and live in the same place.
+- **ES modules, no TypeScript.** JSDoc on public functions is appreciated.
+- **Comments explain "why", not "what".** Names already explain "what".
+- **Don't add error handling for impossible states.** Trust internal calls; validate at boundaries (user input, network).
+- **No emojis in code.** Fine in user-facing strings, not in identifiers.
+- **Tests** live in `__tests__/` next to the code; integration tests use the `.e2e.test.js` suffix.
 
 ---
 
 ## Adding a new LLM provider
 
-The fastest path to land a new provider is:
-
 1. Read [`src/services/providers/baseProvider.js`](./src/services/providers/baseProvider.js) — that's the contract.
-2. Pick a similar existing adapter as a starting point (`anthropicProvider.js` for non-OpenAI-compatible APIs, `xaiProvider.js` for OpenAI-compatible).
-3. Implement at minimum: `id`, `matchesModel`, `sendMessage`, `sendMessageStream`. Optional: `listModels`, `isAvailable`, `_classifyModel`.
-4. Translate the canonical request shape (system + messages + tools + options) to the vendor's API; translate streaming events back to canonical `{content, reasoning, usage, finishReason, toolCalls}`.
-5. Register the new adapter in [`src/services/providers/index.js`](./src/services/providers/index.js).
-6. Add contract tests to [`src/services/providers/__tests__/providers.contract.test.js`](./src/services/providers/__tests__/providers.contract.test.js).
+2. Copy a similar adapter (`anthropicProvider.js` for non-OpenAI-shaped APIs, `xaiProvider.js` for OpenAI-compatible).
+3. Implement: `id`, `matchesModel`, `sendMessage`, `sendMessageStream`. Optional: `listModels`, `isAvailable`, `_classifyModel`.
+4. Translate the canonical request (system + messages + tools + options) to the vendor's API; translate streaming events back to `{content, reasoning, usage, finishReason, toolCalls}`.
+5. Register in [`src/services/providers/index.js`](./src/services/providers/index.js).
+6. Add contract tests in [`src/services/providers/__tests__/providers.contract.test.js`](./src/services/providers/__tests__/providers.contract.test.js).
 
-[`docs/PROVIDERS.md`](./docs/PROVIDERS.md) goes deeper on per-vendor specifics.
+Deeper detail: [`docs/PROVIDERS.md`](./docs/PROVIDERS.md).
 
 ---
 
 ## Reporting security issues
 
-Please don't file a public GitHub issue for security vulnerabilities. Email **`contact@loxia.ai`** instead. We aim to acknowledge within two business days and ship a fix or workaround as quickly as the severity warrants.
+**Don't file a public issue.** Email **`contact@loxia.ai`** instead. We aim to acknowledge within two business days.
 
 ---
 
 ## License
 
-By contributing, you agree your contributions are licensed under [Apache-2.0](./LICENSE), the same license as the rest of the project.
+By contributing, you agree your contributions are licensed under [Apache-2.0](./LICENSE).

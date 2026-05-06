@@ -9,8 +9,9 @@ body:
         the idea is wanted before they invest hours.
 
         Before filing:
-        - Check [`docs/GOOD_FIRST_ISSUES.md`](https://github.com/Loxia-ai/onbuzz-community/blob/main/docs/GOOD_FIRST_ISSUES.md)
-          for a curated list of pre-scoped tasks. If one matches, comment on its issue instead of opening a new one.
+        - Check [`docs/COMMUNITY_PROGRAM.md`](https://github.com/Loxia-ai/onbuzz-community/blob/main/docs/COMMUNITY_PROGRAM.md)
+          for the 48-task development program. If a daily task or capstone matches, claim it there
+          (instructions in the doc) instead of opening a new issue.
         - For "I think OnBuzz should grow feature X", use the [Feature request](./new?template=feature_request.yml) template.
         - For broad questions ("what's the architecture?"), use [Discussions](https://github.com/Loxia-ai/onbuzz-community/discussions).
 
