@@ -41,14 +41,17 @@ function modelMatchesQuery(model, q) {
 }
 
 function ModelPicker({ value, onChange, disabled = false, idPrefix = 'model-picker' }) {
-  const { getModelsByCategory, loading, error } = useModelsStore();
+  // Subscribe to `models` so this component re-renders when the store
+  // hydrates after an async fetch. `getModelsByCategory` is a stable
+  // action reference — including only it in the memo deps would let the
+  // picker cache an empty list forever if it mounted before models loaded.
+  const { models, getModelsByCategory, loading, error } = useModelsStore();
   const [search, setSearch] = useState('');
 
   const q = search.trim().toLowerCase();
 
-  // Build the visible category list once per render. Categories whose
-  // models are all filtered out are hidden so the empty groups don't take
-  // up vertical space when the user is searching.
+  // Categories whose models all filter out are hidden so the user
+  // doesn't see empty group headers while searching.
   const visibleCategories = useMemo(() => {
     const categories = getModelsByCategory();
     return Object.entries(categories || {})
@@ -59,7 +62,9 @@ function ModelPicker({ value, onChange, disabled = false, idPrefix = 'model-pick
         models: (cat.models || []).filter(m => modelMatchesQuery(m, q)),
       }))
       .filter(c => c.models.length > 0);
-  }, [getModelsByCategory, q]);
+    // `models` is the load-bearing dep — see comment above the destructure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models, q]);
 
   const totalShown = visibleCategories.reduce((n, c) => n + c.models.length, 0);
 

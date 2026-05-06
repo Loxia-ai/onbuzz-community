@@ -64,7 +64,6 @@ function AgentEditModal({ agent, onClose, onSuccess }) {
     ));
   }, [availableTools, toolSearch]);
 
-
   useEffect(() => {
     if (agent) {
       console.log('🔄 Setting form data from agent:', {
