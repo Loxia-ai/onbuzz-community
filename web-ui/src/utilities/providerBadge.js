@@ -55,3 +55,15 @@ export function providerBadgeClass(id) {
   const accent = ACCENT[id] || 'border-gray-300 dark:border-gray-600';
   return `${BADGE_BASE} ${accent}`;
 }
+
+/**
+ * Tailwind class string for a generic feature badge (e.g. "Vision"). Same
+ * pill base as the provider chip with a deliberately neutral border, so
+ * feature flags read as quieter siblings of the provider chip rather than
+ * competing for attention.
+ *
+ * @returns {string}
+ */
+export function featureBadgeClass() {
+  return `${BADGE_BASE} border-gray-300 dark:border-gray-600`;
+}

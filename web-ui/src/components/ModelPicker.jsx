@@ -19,7 +19,7 @@ import React, { useMemo, useState } from 'react';
 import { MagnifyingGlassIcon, XMarkIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { useModelsStore } from '../stores/modelsStore.js';
 import LoadingSpinner from './LoadingSpinner.jsx';
-import { providerLabel, providerBadgeClass } from '../utilities/providerBadge.js';
+import { providerLabel, providerBadgeClass, featureBadgeClass } from '../utilities/providerBadge.js';
 
 function cleanDisplayName(name) {
   return (name || '')
@@ -190,8 +190,8 @@ function ModelPicker({ value, onChange, disabled = false, idPrefix = 'model-pick
                             {providerLabel(model.provider)}
                           </span>
                           {model.features?.supportsVision && (
-                            <span className="px-1 py-0.5 text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded">
-                              👁
+                            <span className={featureBadgeClass()}>
+                              Vision
                             </span>
                           )}
                         </div>
