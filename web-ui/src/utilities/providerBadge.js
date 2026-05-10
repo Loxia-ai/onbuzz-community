@@ -61,12 +61,8 @@ export function providerBadgeClass(id) {
  * pill base as the provider chip with a deliberately neutral border, so
  * feature flags read as quieter siblings of the provider chip rather than
  * competing for attention.
- *
- * @returns {string}
  */
-export function featureBadgeClass() {
-  return `${BADGE_BASE} border-gray-300 dark:border-gray-600`;
-}
+export const FEATURE_BADGE_CLASS = `${BADGE_BASE} border-gray-300 dark:border-gray-600`;
 
 /**
  * Strip backend naming noise ("Loxia ", "Direct ", " (Platform)", " (Direct)")
