@@ -44,6 +44,8 @@ const ACCENT = {
   ollama:    'border-purple-300 dark:border-purple-700/60',
 };
 
+const NEUTRAL_BORDER = 'border-gray-300 dark:border-gray-600';
+
 /**
  * Tailwind class string for the chip. Includes base pill styling plus a
  * provider-specific border accent.
@@ -52,7 +54,7 @@ const ACCENT = {
  * @returns {string}
  */
 export function providerBadgeClass(id) {
-  const accent = ACCENT[id] || 'border-gray-300 dark:border-gray-600';
+  const accent = ACCENT[id] || NEUTRAL_BORDER;
   return `${BADGE_BASE} ${accent}`;
 }
 
@@ -62,7 +64,7 @@ export function providerBadgeClass(id) {
  * feature flags read as quieter siblings of the provider chip rather than
  * competing for attention.
  */
-export const FEATURE_BADGE_CLASS = `${BADGE_BASE} border-gray-300 dark:border-gray-600`;
+export const FEATURE_BADGE_CLASS = `${BADGE_BASE} ${NEUTRAL_BORDER}`;
 
 /**
  * Strip backend naming noise ("Loxia ", "Direct ", " (Platform)", " (Direct)")
