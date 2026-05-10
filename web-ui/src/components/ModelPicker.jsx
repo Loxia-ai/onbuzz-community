@@ -132,7 +132,7 @@ function ModelPicker({ value, onChange, disabled = false, idPrefix = 'model-pick
                 </h3>
                 {cat.badge && (
                   <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                    cat.key === 'cloud' || cat.key === 'platform'
+                    cat.key === 'cloud'
                       ? 'bg-loxia-100 text-loxia-700 dark:bg-loxia-900/30 dark:text-loxia-300'
                       : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
                   }`}>
