@@ -19,15 +19,7 @@ import React, { useMemo, useState } from 'react';
 import { MagnifyingGlassIcon, XMarkIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { useModelsStore } from '../stores/modelsStore.js';
 import LoadingSpinner from './LoadingSpinner.jsx';
-import { providerLabel, providerBadgeClass, featureBadgeClass } from '../utilities/providerBadge.js';
-
-function cleanDisplayName(name) {
-  return (name || '')
-    .replace('Loxia ', '')
-    .replace('Direct ', '')
-    .replace(' (Platform)', '')
-    .replace(' (Direct)', '');
-}
+import { providerLabel, providerBadgeClass, featureBadgeClass, cleanDisplayName } from '../utilities/providerBadge.js';
 
 function modelMatchesQuery(model, q) {
   if (!q) return true;

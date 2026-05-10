@@ -67,3 +67,19 @@ export function providerBadgeClass(id) {
 export function featureBadgeClass() {
   return `${BADGE_BASE} border-gray-300 dark:border-gray-600`;
 }
+
+/**
+ * Strip backend naming noise ("Loxia ", "Direct ", " (Platform)", " (Direct)")
+ * from a model display name. The provider chip carries that information
+ * visually, so the row label should read clean.
+ *
+ * @param {string|undefined|null} name
+ * @returns {string}
+ */
+export function cleanDisplayName(name) {
+  return (name || '')
+    .replace('Loxia ', '')
+    .replace('Direct ', '')
+    .replace(' (Platform)', '')
+    .replace(' (Direct)', '');
+}

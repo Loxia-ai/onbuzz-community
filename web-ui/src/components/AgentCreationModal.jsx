@@ -28,6 +28,7 @@ import {
 } from '../constants/index.js';
 import { withoutOptInOnly } from '../constants/toolConstants.js';
 import ModelPicker from './ModelPicker.jsx';
+import { cleanDisplayName } from '../utilities/providerBadge.js';
 
 // Name bank for auto-generated agent names
 const AGENT_NAME_BANK = [
@@ -583,11 +584,7 @@ function AgentCreationModal({ onClose, onSuccess, sourceAgent = null }) {
                       const allModels = Object.values(modelCategories).flatMap(c => c.models);
                       const selected = allModels.find(m => m.id === formData.model);
                       if (!selected) return 'Select a model';
-                      return (selected.displayName || selected.name)
-                        .replace('Loxia ', '')
-                        .replace('Direct ', '')
-                        .replace(' (Platform)', '')
-                        .replace(' (Direct)', '');
+                      return cleanDisplayName(selected.displayName || selected.name);
                     })()}
                   </div>
                 </div>
