@@ -94,10 +94,8 @@ const generateAgentName = (templateId) => {
 function AgentCreationModal({ onClose, onSuccess, sourceAgent = null }) {
   const { createAgent, duplicateAgent, loading } = useAppStore();
   const {
-    models,
     getModelsByCategory,
-    refreshIfStale,
-    isModelAvailable
+    refreshIfStale
   } = useModelsStore();
 
   // Determine if we're in clone mode
