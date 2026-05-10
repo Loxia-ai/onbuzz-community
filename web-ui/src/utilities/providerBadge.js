@@ -27,7 +27,11 @@ const UNKNOWN_PROVIDER_LABEL = 'Unknown';
 export function providerLabel(id) {
   if (!id || typeof id !== 'string') return UNKNOWN_PROVIDER_LABEL;
   if (LABELS[id]) return LABELS[id];
-  return id.charAt(0).toUpperCase() + id.slice(1);
+  return id
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 // Subtle accent border per provider; neutral background works in both
