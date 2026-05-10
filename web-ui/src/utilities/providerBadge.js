@@ -14,6 +14,8 @@ const LABELS = {
   ollama:    'Ollama',
 };
 
+const UNKNOWN_PROVIDER_LABEL = 'Unknown';
+
 /**
  * Human-readable provider label for the chip. Unknown ids (e.g. a user's
  * custom OpenAI-compatible endpoint name) are returned with the first
@@ -23,7 +25,7 @@ const LABELS = {
  * @returns {string}
  */
 export function providerLabel(id) {
-  if (!id || typeof id !== 'string') return 'Unknown';
+  if (!id || typeof id !== 'string') return UNKNOWN_PROVIDER_LABEL;
   if (LABELS[id]) return LABELS[id];
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
