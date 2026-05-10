@@ -39,7 +39,7 @@ export function providerLabel(id) {
 const BADGE_BASE =
   'inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] ' +
   'font-medium leading-none whitespace-nowrap ' +
-  'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 ' +
+  'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 ' +
   'border';
 
 const ACCENT = {
