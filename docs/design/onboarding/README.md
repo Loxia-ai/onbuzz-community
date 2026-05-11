@@ -7,7 +7,8 @@ in under 60 seconds.
 
 `useOnboarding` (web-ui/src/hooks/useOnboarding.js) decides whether to mount
 the wizard. **One source of truth**: the `loxia-onboarding-complete` flag in
-localStorage. The hook computes a single derived expression:
+localStorage. The wizard is for **first launch only** — a genuinely empty
+installation. The hook computes a single derived expression:
 
 ```js
 shouldShow = initialized && !dismissed
@@ -25,14 +26,24 @@ shouldShow = initialized && !dismissed
 - `dismissed` is per-session only (resets on reload) — when the user hits
   the skip button.
 
+If agents already exist in the backend session, the user is not "fresh"
+and the wizard does not appear — any subsequent provider/key gap is
+handled by the existing post-onboarding `AttentionRequiredModal` reminder
+flow, not by re-opening the wizard.
+
 Once the wizard finishes, `loxia-onboarding-complete = "true"` is the
 authoritative source for "this user has been onboarded". Removing keys or
 agents later will **not** re-trigger the wizard — the existing
 `AttentionRequiredModal` handles those reminders.
 
-The wizard is mounted in `App.jsx` and renders above all other UI. While it
-is on screen, the existing `AttentionRequiredModal` is suppressed so the
-two never stack.
+The wizard is mounted in `App.jsx`. Privacy consent is a hard pre-gate:
+if the user has never answered the analytics prompt, `AttentionRequiredModal`
+renders first and the wizard stays hidden. While that gate is active the
+modal is scoped to the consent issue only — `API_KEY_MISSING` is filtered
+out so the legacy "Provider Key Required" step cannot appear before the
+wizard. Once consent is resolved the wizard takes over and suppresses
+the modal so the two never stack. Post-onboarding, the modal is allowed
+to surface any remaining issues normally.
 
 ## The three steps
 
@@ -192,10 +203,11 @@ Capture each at 1280×800 light + dark themes for the design board.
 Fresh-install path:
 
 1. Clear `loxia-onboarding-complete`, `loxia-settings`,
-   `loxia-ollama-settings` from devtools → Application → Local Storage.
-   Reload.
-2. Confirm the **Welcome to OnBuzz Community** modal appears (and the
-   AttentionRequiredModal does not).
+   `loxia-ollama-settings`, and `loxia-analytics-consent` from devtools
+   → Application → Local Storage. Reload.
+2. Confirm the **AttentionRequiredModal** appears first asking for
+   privacy/analytics consent. Pick a level. The modal closes and the
+   **Welcome to OnBuzz Community** wizard takes over.
 3. Pick **OpenAI**, paste a real key, click **Test connection** → success
    banner with model count. Continue.
 4. Confirm step 3 has a model preselected (e.g. `gpt-4o-mini`). Click

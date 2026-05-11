@@ -3,12 +3,18 @@
  *
  * Single source of truth: `loxia-onboarding-complete` in localStorage.
  *
+ * The wizard is for **first launch only**: a genuinely empty installation
+ * with no agents and no provider key. Once either exists, the user is no
+ * longer "fresh" and any later provider/key gaps are handled by the
+ * existing post-onboarding `AttentionRequiredModal` — not by re-opening
+ * the wizard.
+ *
  * Visibility rule (one expression, no extra state):
  *   shouldShow = !flag && noAgents && noProvider && initialized && !dismissed
  *
  * Inputs:
  *   - flag             — read from localStorage on every render (cheap)
- *   - noAgents         — appStore.agents.length === 0
+ *   - noAgents         — appStore.agents.length === 0 (backend session)
  *   - noProvider       — no vendor key in loxia-settings
  *   - initialized      — appStore.initialized (don't flash before session boots)
  *   - dismissed        — local component state, only meaningful for the

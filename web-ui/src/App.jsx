@@ -35,11 +35,39 @@ function App() {
   // Unified attention required management
   const { issues, showModal, closeModal, resolveIssue } = useAttentionRequired();
 
-  // First-run onboarding (3-step wizard). When the wizard is on screen,
-  // suppress AttentionRequiredModal — the wizard already handles the
-  // privacy consent + key + agent path more gracefully.
+  // First-run onboarding (3-step wizard). Privacy consent is a hard
+  // pre-gate — even on a fresh install, the AttentionRequiredModal must
+  // resolve consent before the wizard appears. After consent is granted
+  // the wizard takes over and suppresses the modal for the remaining
+  // provider/key path.
   const { shouldShow: showOnboarding, completeOnboarding, dismissOnboarding } =
     useOnboarding();
+
+  // Consent is the only issue we let pre-empt onboarding. Anything else
+  // (e.g. API_KEY_MISSING) is the wizard's job to resolve first.
+  const needsPrivacyConsent = issues.some(
+    (issue) => issue.type === ISSUE_TYPES.PRIVACY_CONSENT,
+  );
+  const shouldRenderOnboarding = showOnboarding && !needsPrivacyConsent;
+  // Pre-onboarding gate: modal is only allowed to surface the consent
+  // issue. Even if API_KEY_MISSING is queued, the wizard handles that.
+  const shouldRenderConsentGate = showModal && needsPrivacyConsent;
+  // Post-onboarding modal: anything left after the wizard is done
+  // (provider key reminders, etc.) goes through here as before.
+  const shouldRenderPostOnboardingModal =
+    showModal &&
+    !shouldRenderConsentGate &&
+    !shouldRenderOnboarding &&
+    issues.length > 0;
+  const shouldRenderAttentionModal =
+    shouldRenderConsentGate || shouldRenderPostOnboardingModal;
+  // While the consent gate is up, scope the modal to that single issue
+  // so it cannot advance to the legacy "Provider Key Required" step
+  // before the wizard appears. Outside the gate the modal sees every
+  // open issue normally.
+  const modalIssues = shouldRenderConsentGate
+    ? issues.filter((issue) => issue.type === ISSUE_TYPES.PRIVACY_CONSENT)
+    : issues;
 
   // Initialize WebSocket connection
   useWebSocket();
@@ -109,22 +137,25 @@ function App() {
       {/* Main App with Layout */}
       <Route path="/*" element={
         <>
-          {/* First-run onboarding wizard. Renders above all other UI when
-              the user is fresh; takes precedence over AttentionRequiredModal. */}
-          {showOnboarding && (
-            <OnboardingFlow
-              onComplete={completeOnboarding}
-              onSkip={dismissOnboarding}
+          {/* Privacy consent is the only pre-onboarding gate. While
+              that gate is active, the modal sees only the consent
+              issue — API_KEY_MISSING is left for the wizard to handle.
+              After onboarding (or whenever the wizard doesn't apply)
+              the modal surfaces any remaining issues normally. */}
+          {shouldRenderAttentionModal && (
+            <AttentionRequiredModal
+              issues={modalIssues}
+              onResolve={resolveIssue}
+              onClose={() => closeModal(true)}
             />
           )}
 
-          {/* Unified Attention Required Modal — hidden while onboarding
-              is on screen so we don't stack two competing dialogs. */}
-          {!showOnboarding && showModal && issues.length > 0 && (
-            <AttentionRequiredModal
-              issues={issues}
-              onResolve={resolveIssue}
-              onClose={() => closeModal(true)}
+          {/* First-run onboarding wizard. Renders above the rest of the
+              UI only after privacy consent is resolved. */}
+          {shouldRenderOnboarding && (
+            <OnboardingFlow
+              onComplete={completeOnboarding}
+              onSkip={dismissOnboarding}
             />
           )}
 
