@@ -40,8 +40,10 @@ function StepConnect({ providerId, onBack, onConnected, onSkip }) {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState(null); // { ok, message, models? }
   const [saving, setSaving] = useState(false);
+  const [confirmingSkip, setConfirmingSkip] = useState(false);
 
   const testRequestId = useRef(0);
+  const cancelSkipRef = useRef(null);
 
   // Pre-fill any existing key/host so the user doesn't re-type. Reset the
   // result when the provider changes — a passing OpenAI test must not
@@ -50,6 +52,7 @@ function StepConnect({ providerId, onBack, onConnected, onSkip }) {
     if (!provider) return;
     setResult(null);
     setTesting(false);
+    setConfirmingSkip(false);
     testRequestId.current += 1; // invalidate any in-flight request
     try {
       if (provider.cloud) {
@@ -152,6 +155,32 @@ function StepConnect({ providerId, onBack, onConnected, onSkip }) {
     setHost(value);
     if (result) setResult(null);
   };
+
+  // Skip flow: if the user has typed a cloud key but never saved it via a
+  // successful Test connection, we route through a small inline confirm
+  // panel so the discard is explicit. Empty input falls through immediately.
+  const handleSkipClick = () => {
+    if (provider.cloud && apiKey.trim().length > 0) {
+      setConfirmingSkip(true);
+      return;
+    }
+    onSkip();
+  };
+  const handleConfirmSkip = () => {
+    setConfirmingSkip(false);
+    onSkip();
+  };
+  const handleCancelSkip = () => {
+    setConfirmingSkip(false);
+  };
+
+  // Move keyboard focus to the safer "Go back" button when the confirm
+  // panel opens, so Enter/Space defaults to preserving the typed key.
+  useEffect(() => {
+    if (confirmingSkip && cancelSkipRef.current) {
+      cancelSkipRef.current.focus();
+    }
+  }, [confirmingSkip]);
 
   return (
     <div>
@@ -280,52 +309,94 @@ function StepConnect({ providerId, onBack, onConnected, onSkip }) {
         </div>
       )}
 
-      <div className="mt-6 flex items-center justify-between">
-        <button type="button" onClick={onBack} className="button-secondary" disabled={saving}>
-          Back
-        </button>
-
-        <div className="flex items-center gap-3">
-          {/* Skip is only offered for cloud providers. Ollama already
-              skips key entry by definition, so adding a "Skip" link there
-              would be confusing. The link routes to onSkip() — the parent
-              wizard advances to step 3, which decides what to actually do
-              (use Ollama if available, or finish without an agent). */}
-          {provider.cloud && onSkip && (
+      {confirmingSkip ? (
+        <div
+          className="mt-6 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40"
+          role="alertdialog"
+          aria-labelledby="skip-confirm-title"
+        >
+          <div
+            id="skip-confirm-title"
+            className="text-sm font-medium text-amber-900 dark:text-amber-100"
+          >
+            Skip without saving this key?
+          </div>
+          <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+            The key you entered has not been verified or saved. If you
+            continue, it will be discarded — you can add a key later in
+            Settings.
+          </div>
+          <div className="mt-3 flex items-center justify-end gap-2">
             <button
               type="button"
-              onClick={onSkip}
-              disabled={saving || testing}
-              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:underline disabled:opacity-50"
+              ref={cancelSkipRef}
+              onClick={handleCancelSkip}
+              className="button-secondary"
             >
-              Skip for now
+              Go back
             </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleSaveAndContinue}
-            disabled={!result?.ok || saving || testing}
-            className="button-primary disabled:opacity-50"
-          >
-            {saving ? (
-              <span className="inline-flex items-center">
-                <LoadingSpinner size="sm" className="mr-2" />
-                Saving...
-              </span>
-            ) : (
-              'Continue'
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={handleConfirmSkip}
+              className="text-sm font-medium text-red-600 dark:text-red-400 hover:underline px-3 py-2"
+            >
+              Skip without saving
+            </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="mt-6 flex items-center justify-between">
+            <button type="button" onClick={onBack} className="button-secondary" disabled={saving}>
+              Back
+            </button>
 
-      {/* One-line nudge under the action row so the skip is discoverable
-          but doesn't compete visually with the primary path. */}
-      {provider.cloud && onSkip && (
-        <p className="mt-2 text-right text-xs text-gray-400 dark:text-gray-500">
-          You can add a key later in Settings.
-        </p>
+            <div className="flex items-center gap-3">
+              {/* Skip is only offered for cloud providers. Ollama already
+                  skips key entry by definition, so adding a "Skip" link there
+                  would be confusing. The link routes to onSkip() — the parent
+                  wizard advances to step 3, which decides what to actually do
+                  (use Ollama if available, or finish without an agent).
+                  When the user has typed a key but never tested it, the click
+                  goes through handleSkipClick → confirm panel instead of
+                  silently discarding the input. */}
+              {provider.cloud && onSkip && (
+                <button
+                  type="button"
+                  onClick={handleSkipClick}
+                  disabled={saving || testing}
+                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:underline disabled:opacity-50"
+                >
+                  Skip for now
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSaveAndContinue}
+                disabled={!result?.ok || saving || testing}
+                className="button-primary disabled:opacity-50"
+              >
+                {saving ? (
+                  <span className="inline-flex items-center">
+                    <LoadingSpinner size="sm" className="mr-2" />
+                    Saving...
+                  </span>
+                ) : (
+                  'Continue'
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* One-line nudge under the action row so the skip is discoverable
+              but doesn't compete visually with the primary path. */}
+          {provider.cloud && onSkip && (
+            <p className="mt-2 text-right text-xs text-gray-400 dark:text-gray-500">
+              You can add a key later in Settings.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
