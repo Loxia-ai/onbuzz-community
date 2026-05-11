@@ -54,30 +54,27 @@ const isOnboardingComplete = () => {
   }
 };
 
-// useSyncExternalStore lets us treat localStorage as a reactive source
-// without mirroring its value into useState. The subscribe function wires
-// in cross-tab `storage` events plus the same-tab custom events that
-// other onboarding components dispatch when they write keys.
-const subscribeStorage = (callback) => {
-  const events = ['storage', 'apikey-updated', 'settings-updated', 'onboarding-completed'];
-  events.forEach((e) => window.addEventListener(e, callback));
-  return () => events.forEach((e) => window.removeEventListener(e, callback));
-};
-
 // Tick-based snapshot — useSyncExternalStore needs referentially stable
 // values for "no change". An incrementing counter is the simplest way to
 // say "re-render and re-read localStorage" without mirroring values.
 let storageTick = 0;
 const getStorageSnapshot = () => storageTick;
-const bumpStorageTick = () => {
-  storageTick += 1;
-};
 
-if (typeof window !== 'undefined') {
-  ['storage', 'apikey-updated', 'settings-updated', 'onboarding-completed'].forEach((e) =>
-    window.addEventListener(e, bumpStorageTick),
-  );
-}
+// useSyncExternalStore lets us treat localStorage as a reactive source
+// without mirroring its value into useState. The subscribe function wires
+// in cross-tab `storage` events plus the same-tab custom events that
+// other onboarding components dispatch when they write keys. The handler
+// bumps `storageTick` before notifying React so the next getSnapshot()
+// returns a fresh value and React doesn't bail out of the re-render.
+const subscribeStorage = (callback) => {
+  const events = ['storage', 'apikey-updated', 'settings-updated', 'onboarding-completed'];
+  const handler = () => {
+    storageTick += 1;
+    callback();
+  };
+  events.forEach((e) => window.addEventListener(e, handler));
+  return () => events.forEach((e) => window.removeEventListener(e, handler));
+};
 
 export function useOnboarding() {
   const initialized = useAppStore((s) => s.initialized);
