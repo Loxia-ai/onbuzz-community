@@ -74,6 +74,10 @@ function StepAgent({ providerId, providerModels, connectionSkipped, onBack, onCr
     } else {
       setOllamaCheckDone(true);
     }
+    // reason: fetchModels and fetchOllamaModels are stable Zustand action
+    // references, and usingOllama is fully derived from providerId +
+    // connectionSkipped which are already in deps. Adding them would
+    // re-probe Ollama on unrelated re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId, connectionSkipped]);
 
@@ -106,6 +110,11 @@ function StepAgent({ providerId, providerModels, connectionSkipped, onBack, onCr
         return stillValid ? prev : pickDefaultModel(providerId, providerModels || []);
       });
     }
+    // reason: effectiveModels is tracked by length rather than identity —
+    // the memo re-derives a new array whenever providerModels/ollamaModels
+    // re-render, and rerunning on every identity change would clobber a
+    // valid user selection. provider is derived from providerId, and
+    // setSelectedModel is React-stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId, usingOllama, providerModels, effectiveModels.length]);
 
