@@ -1,15 +1,19 @@
 import React from 'react';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import ThinkingBubble from '../ThinkingBubble.jsx';
 
+// This suite runs under vitest, not jest. vitest exposes the same fake-timer
+// API surface under `vi` instead of `jest`. The previous use of `jest.*` here
+// silently broke (ReferenceError) since the web-ui migrated to vitest.
 describe('ThinkingBubble', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   test('renders with scheduling-aware initial message', () => {
@@ -39,7 +43,7 @@ describe('ThinkingBubble', () => {
     render(<ThinkingBubble agentName="TestBot" />);
 
     // Advance past LONG_WAIT_THRESHOLD (30s)
-    act(() => { jest.advanceTimersByTime(31000); });
+    act(() => { vi.advanceTimersByTime(31000); });
 
     const longWaitMessages = [
       'Waiting to be scheduled, bear with me.',
@@ -58,7 +62,7 @@ describe('ThinkingBubble', () => {
   test('shows elapsed time indicator after long wait', () => {
     render(<ThinkingBubble agentName="TestBot" />);
 
-    act(() => { jest.advanceTimersByTime(35000); });
+    act(() => { vi.advanceTimersByTime(35000); });
 
     // Should show elapsed seconds
     expect(screen.getByText(/\d+s/)).toBeInTheDocument();

@@ -1,17 +1,21 @@
-/** @jest-environment jsdom */
-const React = require('react');
-const { render, screen } = require('@testing-library/react');
-require('@testing-library/jest-dom');
+// Migrated from CommonJS + jest API to ESM + vi (vitest) — the web-ui
+// has been on vitest for a while; this file was missed in the migration.
+// The original /** @jest-environment jsdom */ pragma is no longer needed:
+// vitest.config.js sets the environment globally.
+import React from 'react';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom';
 
 const mockStoreState = {
   agentCompactionStatus: new Map()
 };
 
-jest.mock('../../stores/appStore', () => ({
+vi.mock('../../stores/appStore', () => ({
   useAppStore: (selector) => selector(mockStoreState)
 }));
 
-const { CompactionIndicator } = require('../CompactionIndicator.jsx');
+const { CompactionIndicator } = await import('../CompactionIndicator.jsx');
 
 function setMockState(compactionEntry) {
   mockStoreState.agentCompactionStatus = new Map();

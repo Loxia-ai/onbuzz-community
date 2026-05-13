@@ -1,7 +1,9 @@
-/** @jest-environment jsdom */
-const React = require('react');
-const { render, screen, fireEvent } = require('@testing-library/react');
-require('@testing-library/jest-dom');
+// Migrated from CommonJS + jest API to ESM + vi (vitest) — the web-ui
+// has been on vitest for a while; this file was missed in the migration.
+import React from 'react';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom';
 
 const mockStoreState = {
   agents: [],
@@ -9,11 +11,11 @@ const mockStoreState = {
   agentMessages: new Map()
 };
 
-jest.mock('../../stores/appStore', () => ({
+vi.mock('../../stores/appStore', () => ({
   useAppStore: (selector) => selector(mockStoreState)
 }));
 
-const TeamTaskBoard = require('../TeamTaskBoard.jsx').default;
+const TeamTaskBoard = (await import('../TeamTaskBoard.jsx')).default;
 
 const sampleAgents = [
   { id: 'a1', name: 'Agent Alpha', status: 'active' },

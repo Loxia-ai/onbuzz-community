@@ -1,7 +1,9 @@
-/** @jest-environment jsdom */
-const React = require('react');
-const { render, screen, fireEvent } = require('@testing-library/react');
-require('@testing-library/jest-dom');
+// Migrated from CommonJS + jest API to ESM + vi (vitest) — the web-ui
+// has been on vitest for a while; this file was missed in the migration.
+import React from 'react';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom';
 
 // Set up a mutable state object that the mock reads from
 const mockStoreState = {
@@ -9,11 +11,11 @@ const mockStoreState = {
   messages: []
 };
 
-jest.mock('../../stores/appStore', () => ({
+vi.mock('../../stores/appStore', () => ({
   useAppStore: (selector) => selector(mockStoreState)
 }));
 
-const TaskPanel = require('../TaskPanel.jsx').default;
+const TaskPanel = (await import('../TaskPanel.jsx')).default;
 
 const messagesWithTasks = [{
   id: 'msg-1', role: 'assistant', content: 'test',
@@ -86,7 +88,7 @@ describe('TaskPanel', () => {
 
   test('calls onClose when X button clicked', () => {
     setMockState({ messages: [] });
-    const onClose = jest.fn();
+    const onClose = vi.fn();
     render(React.createElement(TaskPanel, { onClose }));
 
     const closeButton = screen.getByRole('button');
