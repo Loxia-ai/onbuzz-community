@@ -16,11 +16,22 @@ jest.unstable_mockModule('fs', () => ({
   promises: fsMock
 }));
 
+// randomBytes is consumed by _generateMessageId / _generateConversationId
+// as `msg-${Date.now()}-${randomBytes(4).toString('hex')}`. A constant
+// 'mockrandom' caused two IDs generated in the same millisecond to
+// collide, which made `rejects reply when conversation depth limit
+// reached` flake: reply1.messageId could equal sendResult.messageId, so
+// the "second" reply was actually replying to the original message and
+// the depth counter never advanced. An incrementing counter keeps each
+// generated id distinct while still being fully deterministic per run.
+let __mockRandomBytesCounter = 0;
 jest.unstable_mockModule('crypto', () => ({
   default: {
     randomUUID: jest.fn(() => 'mock-crypto-uuid'),
-    randomBytes: jest.fn(() => ({ toString: () => 'mockrandom' }))
-  }
+    randomBytes: jest.fn(() => ({
+      toString: () => `mockrandom${++__mockRandomBytesCounter}`,
+    })),
+  },
 }));
 
 const { default: AgentCommunicationTool } = await import('../agentCommunicationTool.js');
