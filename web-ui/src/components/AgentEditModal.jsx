@@ -8,7 +8,6 @@ import {
   ArchiveBoxIcon
 } from '@heroicons/react/24/outline';
 import { useAppStore } from '../stores/appStore.js';
-import { useModelsStore } from '../stores/modelsStore.js';
 import LoadingSpinner from './LoadingSpinner.jsx';
 import FolderPicker from './FolderPicker.jsx';
 import DirectoryArrayPicker from './DirectoryArrayPicker.jsx';
@@ -19,10 +18,10 @@ import ToolConfigModal from './toolConfig/ToolConfigModal.jsx';
 import { hasConfigurator } from './toolConfig/registry.js';
 import MemoryManagementTab from './MemoryManagementTab.jsx';
 import { withoutOptInOnly } from '../constants/toolConstants.js';
+import ModelPicker from './ModelPicker.jsx';
 
 function AgentEditModal({ agent, onClose, onSuccess }) {
   const { updateAgent, loading } = useAppStore();
-  const { getModelsByCategory } = useModelsStore();
 
   const [formData, setFormData] = useState({
     name: agent?.name || '',
@@ -64,12 +63,6 @@ function AgentEditModal({ agent, onClose, onSuccess }) {
       (t.id || '').toLowerCase().includes(q)
     ));
   }, [availableTools, toolSearch]);
-
-  const modelCategories = getModelsByCategory();
-  const allModels = [
-    ...modelCategories.platform.models,
-    ...modelCategories.direct.models
-  ];
 
   useEffect(() => {
     if (agent) {
@@ -344,28 +337,12 @@ function AgentEditModal({ agent, onClose, onSuccess }) {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Language Model
                   </label>
-                  <select
+                  <ModelPicker
                     value={formData.model}
-                    onChange={(e) => handleInputChange('model', e.target.value)}
-                    className={`input-primary ${errors.model ? 'border-red-500' : ''}`}
+                    onChange={(id) => handleInputChange('model', id)}
                     disabled={isSubmitting}
-                  >
-                    <option value="">Select a model...</option>
-                    <optgroup label="Platform Models">
-                      {modelCategories.platform.models.map((model) => (
-                        <option key={model.id} value={model.modelName}>
-                          {model.displayName}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Direct Models">
-                      {modelCategories.direct.models.map((model) => (
-                        <option key={model.id} value={model.modelName}>
-                          {model.displayName}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
+                    idPrefix="agent-edit-model"
+                  />
                   {errors.model && (
                     <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.model}</p>
                   )}

@@ -27,6 +27,8 @@ import {
   resolvePreferredModel
 } from '../constants/index.js';
 import { withoutOptInOnly } from '../constants/toolConstants.js';
+import ModelPicker from './ModelPicker.jsx';
+import { cleanDisplayName } from '../utilities/providerBadge.js';
 
 // Name bank for auto-generated agent names
 const AGENT_NAME_BANK = [
@@ -93,12 +95,8 @@ const generateAgentName = (templateId) => {
 function AgentCreationModal({ onClose, onSuccess, sourceAgent = null }) {
   const { createAgent, duplicateAgent, loading } = useAppStore();
   const {
-    models,
-    loading: modelsLoading,
-    error: modelsError,
     getModelsByCategory,
-    refreshIfStale,
-    isModelAvailable
+    refreshIfStale
   } = useModelsStore();
 
   // Determine if we're in clone mode
@@ -586,11 +584,7 @@ function AgentCreationModal({ onClose, onSuccess, sourceAgent = null }) {
                       const allModels = Object.values(modelCategories).flatMap(c => c.models);
                       const selected = allModels.find(m => m.id === formData.model);
                       if (!selected) return 'Select a model';
-                      return (selected.displayName || selected.name)
-                        .replace('Loxia ', '')
-                        .replace('Direct ', '')
-                        .replace(' (Platform)', '')
-                        .replace(' (Direct)', '');
+                      return cleanDisplayName(selected.displayName || selected.name);
                     })()}
                   </div>
                 </div>
@@ -603,108 +597,13 @@ function AgentCreationModal({ onClose, onSuccess, sourceAgent = null }) {
             </button>
 
             {modelsExpanded && (
-              <div className="mt-3 space-y-4">
-                {modelsLoading && (
-                  <div className="flex items-center justify-center py-4">
-                    <LoadingSpinner size="sm" />
-                    <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-                      Loading models...
-                    </span>
-                  </div>
-                )}
-
-                {modelsError && (
-                  <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                    <div className="flex items-center text-xs">
-                      <ExclamationTriangleIcon className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mr-2 flex-shrink-0" />
-                      <span className="text-yellow-800 dark:text-yellow-200">
-                        Using fallback models. Some may not be available.
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {Object.entries(modelCategories).map(([categoryKey, category]) => (
-                  <div key={categoryKey}>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                        {category.title.replace(' (Platform)', '').replace(' (Direct)', '')}
-                      </h3>
-                      <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                        categoryKey === 'platform'
-                          ? 'bg-loxia-100 text-loxia-700 dark:bg-loxia-900/30 dark:text-loxia-300'
-                          : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                      }`}>
-                        {category.badge}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 items-stretch">
-                      {category.models.map((model) => {
-                        const isDisabled = model.requiresKey && !model.available;
-                        const isSelected = formData.model === model.id;
-                        // Clean up display name - remove redundant prefixes and suffixes
-                        const displayName = (model.displayName || model.name)
-                          .replace('Loxia ', '')
-                          .replace('Direct ', '')
-                          .replace(' (Platform)', '')
-                          .replace(' (Direct)', '');
-
-                        return (
-                          <label
-                            key={model.id}
-                            className={`relative cursor-pointer ${isDisabled ? 'cursor-not-allowed' : ''}`}
-                            tabIndex={loading || isDisabled ? -1 : 0}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                if (!loading && !isDisabled) {
-                                  setFormData(prev => ({ ...prev, model: model.id }));
-                                }
-                              }
-                            }}
-                          >
-                            <input
-                              type="radio"
-                              value={model.id}
-                              checked={isSelected}
-                              onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))}
-                              className="sr-only"
-                              disabled={loading || isDisabled}
-                            />
-                            <div className={`h-full p-2 rounded-lg border text-center transition-all flex flex-col justify-center ${
-                              isSelected
-                                ? 'border-loxia-500 bg-loxia-50 dark:bg-loxia-900/20 ring-1 ring-loxia-500'
-                                : isDisabled
-                                ? 'border-gray-200 dark:border-gray-700 opacity-40'
-                                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-                            }`}>
-                              <div className="flex items-center justify-center gap-1">
-                                <span className={`text-sm font-medium ${isSelected ? 'text-loxia-700 dark:text-loxia-300' : 'text-gray-900 dark:text-gray-100'}`}>
-                                  {displayName}
-                                </span>
-                                {model.features?.supportsVision && (
-                                  <span className="px-1 py-0.5 text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded">
-                                    👁
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 min-h-[14px]">
-                                {isDisabled ? (
-                                  <span className="text-red-500 dark:text-red-400">Key required</span>
-                                ) : model.pricing ? (
-                                  <span>${model.pricing.input}/${model.pricing.output}</span>
-                                ) : (
-                                  <span>&nbsp;</span>
-                                )}
-                              </div>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+              <div className="mt-3">
+                <ModelPicker
+                  value={formData.model}
+                  onChange={(id) => setFormData(prev => ({ ...prev, model: id }))}
+                  disabled={loading}
+                  idPrefix="agent-create-model"
+                />
               </div>
             )}
           </div>
