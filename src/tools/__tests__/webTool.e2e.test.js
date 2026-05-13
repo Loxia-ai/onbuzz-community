@@ -73,17 +73,11 @@ describeIfBrowser('HTTP status detection', () => {
     expect(result.title).toBe('Example Domain');
   }, 30000);
 
-  // SKIPPED: contract mismatch between this test and the current WebTool
-  // implementation. webTool.js:1195-1207 deliberately returns
-  //   { success: true, httpStatus: 4xx, diagnostic, warning }
-  // for any fetch where the server returned an error status — the
-  // semantic is "the fetch itself completed; the page may still have
-  // useful content even with an error code". This test was written
-  // against an older contract where 4xx → success:false with an error
-  // string. Re-enable after the maintainers decide which side is right
-  // (and align the other one). Re-enabling without aligning will simply
-  // re-break the suite.
-  test.skip('fetch 404 page returns success=false with HTTP 404', async () => {
+  // 404 is treated as a hard failure per Path C — see
+  // docs/WEBTOOL_4XX_SEMANTICS.md. The 401/402/403 case (auth-or-paywall
+  // → success: true) is intentionally not covered here because we don't
+  // have a reliable live endpoint that always returns those codes.
+  test('fetch 404 page returns success=false with HTTP 404', async () => {
     const result = await wt.execute(
       { operation: 'fetch', url: 'https://github.com/zzzzz999nonexistentuser/zzzzz999nonexistrepo' },
       { agentId: 'http-test', context: {} }
@@ -332,13 +326,21 @@ describeIfBrowser('Successful operations', () => {
     expect(navResult.url).toContain('example.com');
   }, 30000);
 
-  // SKIPPED: depends on live example.com markup + WebTool's interactive
-  // success semantics. The top-level `result.success` returns false in
-  // the current build (the click result is reported inside
-  // `result.data.results[0].results[0]` rather than propagating up).
-  // Whether the outer envelope SHOULD aggregate to true on a successful
-  // inner click is a product decision — re-enable once that contract is
-  // pinned down.
+  // SKIPPED: this one is NOT about the 4xx contract (which was pinned
+  // down in docs/WEBTOOL_4XX_SEMANTICS.md, applied via Path C). The
+  // failure mode is at chain aggregation: clicking an <a> on example.com
+  // is detected as success at the click result, but the outer envelope
+  // returns success:false. Likely root cause is either
+  //   (a) the puppeteer click triggers navigation, and the surrounding
+  //       action wrapper records a navigation failure as the page
+  //       unloads, or
+  //   (b) the open-tab nested-action loop catches an exception from a
+  //       post-click probe and pushes a success:false action that
+  //       failedActions.length sees.
+  // Either way, diagnosing requires running the test in a debugger
+  // against a live Chromium — that's a separate, smaller follow-up.
+  // The pre-validation tests immediately above this one are sufficient
+  // coverage that the action chain *does* report inner errors.
   test.skip('click on existing element succeeds', async () => {
     const result = await wt.execute({
       operation: 'interactive',
