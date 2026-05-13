@@ -1068,6 +1068,13 @@ If blocked (CAPTCHA, access denied), use stealthLevel: "maximum" (visible browse
         timeout: this.DEFAULT_TIMEOUT
       });
       const searchHttpStatus = searchNavResponse ? searchNavResponse.status() : null;
+      // NOTE: deliberately NOT using WebTool._resultForHttpStatus here.
+      // The helper's 401/402/403 → success:true behavior is meant for
+      // page navigation where auth/paywall content is genuinely useful
+      // to the agent. A search engine returning 4xx means it's blocking
+      // us — that should always be a hard failure with a stealth-level
+      // suggestion, not a "useful page" surface. See
+      // docs/WEBTOOL_4XX_SEMANTICS.md ("page-oriented" caveat).
       if (searchHttpStatus && searchHttpStatus >= 400) {
         return {
           success: false,
@@ -1192,16 +1199,13 @@ If blocked (CAPTCHA, access denied), use stealthLevel: "maximum" (visible browse
       const fetchResponse = await page.goto(url, { waitUntil: 'networkidle2', timeout: this.DEFAULT_TIMEOUT });
       const fetchStatus = fetchResponse ? fetchResponse.status() : null;
 
-      if (fetchStatus && fetchStatus >= 400) {
-        const errorResult = {
-          success: true,  // Fetch itself executed — page returned error status
-          url,
-          httpStatus: fetchStatus,
-          diagnostic: `Page returned HTTP ${fetchStatus} (${fetchStatus >= 500 ? 'server error' : fetchStatus === 404 ? 'page not found' : fetchStatus === 403 ? 'access forbidden' : 'client error'})`,
-          warning: `HTTP ${fetchStatus} — the page loaded but returned an error status. Content may still be available.`
-        };
-        // Still try to get title for context
-        try { errorResult.title = await page.title(); } catch {}
+      const fetchHttpError = WebTool._resultForHttpStatus(fetchStatus, { context: 'Page' });
+      if (fetchHttpError) {
+        const errorResult = { ...fetchHttpError, url };
+        // Title is genuinely useful context for the agent — 401/403/404
+        // pages frequently include "Sign in", "Subscribe", or "Not found"
+        // in the title and that's exactly what the agent needs to read.
+        try { errorResult.title = await page.title(); } catch { /* page may be torn down */ }
         // Don't close page here — finally block handles it
         return errorResult;
       }
@@ -1820,6 +1824,81 @@ If blocked (CAPTCHA, access denied), use stealthLevel: "maximum" (visible browse
     );
   }
 
+  /**
+   * Build the canonical result-envelope fragment for an HTTP error
+   * status from page navigation. Path C semantics — see
+   * docs/WEBTOOL_4XX_SEMANTICS.md for the reasoning.
+   *
+   *   401 / 402 / 403  → success: true  (auth / paywall — body may
+   *                                       contain useful content for
+   *                                       the agent to read)
+   *   404 / 410        → success: false (resource doesn't exist)
+   *   429              → success: false + retry suggestion
+   *   5xx              → success: false (server problem)
+   *   other 4xx        → success: false (client error)
+   *
+   * Always includes `httpStatus` so callers / consumers can detect
+   * the underlying code regardless of the `success` flag.
+   *
+   * Returns `null` for status codes below 400, so callers can do:
+   *
+   *     const httpError = WebTool._resultForHttpStatus(status);
+   *     if (httpError) return { ...httpError, ...callerFields };
+   *
+   * NB: this is intentionally page-oriented. The `search` operation
+   * does NOT use this helper because a 401/403 from a search engine
+   * means the engine is blocking us, not serving useful auth content —
+   * those callsites stay on plain "any 4xx = failure" semantics.
+   *
+   * @param {number} status — HTTP status code.
+   * @param {object} [opts]
+   * @param {string} [opts.context='Page'] — Capitalised noun used in the
+   *   message, e.g. 'Tab', 'Page'.
+   * @returns {object|null}
+   * @private
+   */
+  static _resultForHttpStatus(status, { context = 'Page' } = {}) {
+    if (!status || status < 400) return null;
+
+    const isAuthOrPaywall = status === 401 || status === 402 || status === 403;
+    const isNotFound      = status === 404 || status === 410;
+    const isRateLimit     = status === 429;
+    const isServerError   = status >= 500 && status < 600;
+
+    const description = isServerError
+      ? 'server error'
+      : isNotFound
+        ? 'page not found'
+        : status === 401
+          ? 'authentication required'
+          : status === 402
+            ? 'payment required'
+            : status === 403
+              ? 'access forbidden'
+              : isRateLimit
+                ? 'rate limited'
+                : 'client error';
+
+    if (isAuthOrPaywall) {
+      return {
+        success:    true,
+        httpStatus: status,
+        diagnostic: `${context} returned HTTP ${status} (${description})`,
+        warning:    `HTTP ${status} — ${description}. The response body may still contain useful content (login form, paywall notice, etc.).`,
+      };
+    }
+
+    const errorMessage = `${context} returned HTTP ${status} — ${description}.`;
+    return {
+      success:    false,
+      httpStatus: status,
+      error:      errorMessage,
+      ...(isRateLimit
+        ? { suggestion: 'Wait a few seconds and retry, or reduce request frequency.' }
+        : {}),
+    };
+  }
+
   async openTab(agentId, tabName, url, headless, nestedActions = [], context = {}, options = {}) {
     const { humanMode = true } = options; // Default to human mode
 
@@ -1843,14 +1922,12 @@ If blocked (CAPTCHA, access denied), use stealthLevel: "maximum" (visible browse
         });
         const reuseNavStatus = reuseNavResponse ? reuseNavResponse.status() : null;
         if (humanMode) await humanWait('navigation');
-        if (reuseNavStatus && reuseNavStatus >= 400) {
+        const reuseHttpError = WebTool._resultForHttpStatus(reuseNavStatus, { context: 'Tab' });
+        if (reuseHttpError) {
           results.push({
             action: 'navigate',
-            success: true,
+            ...reuseHttpError,
             url: existingTab.page.url(),
-            httpStatus: reuseNavStatus,
-            diagnostic: `Page returned HTTP ${reuseNavStatus}`,
-            warning: `HTTP ${reuseNavStatus} — page loaded but returned an error status. Tab is still usable.`
           });
         }
       }
@@ -2048,15 +2125,17 @@ If blocked (CAPTCHA, access denied), use stealthLevel: "maximum" (visible browse
           await humanWait('navigation');
         }
 
-        // Warn on HTTP errors but don't fail — tab is still usable
-        if (openTabStatus && openTabStatus >= 400) {
+        // Reflect the HTTP status into the chain so failures propagate
+        // up through the chain-aggregation logic. Path C rules:
+        // 401/402/403 stay success:true (tab is genuinely usable for
+        // login/paywall flows); 404/5xx/etc. become success:false so
+        // an agent that hit the wrong URL doesn't keep operating on it.
+        const openTabHttpError = WebTool._resultForHttpStatus(openTabStatus, { context: 'Tab' });
+        if (openTabHttpError) {
           results.push({
             action: 'navigate',
-            success: true,
+            ...openTabHttpError,
             url: tabInfo.url,
-            httpStatus: openTabStatus,
-            diagnostic: `Page returned HTTP ${openTabStatus}`,
-            warning: `HTTP ${openTabStatus} — page loaded but returned an error status. Tab is still usable.`
           });
         }
       }
@@ -2201,14 +2280,9 @@ If blocked (CAPTCHA, access denied), use stealthLevel: "maximum" (visible browse
         if (humanMode) {
           await humanWait('navigation');
         }
-        if (navStatus && navStatus >= 400) {
-          return {
-            success: true,  // Navigation itself executed — page just returned an error status
-            url: tabInfo.url,
-            httpStatus: navStatus,
-            diagnostic: `Page returned HTTP ${navStatus} (${navStatus >= 500 ? 'server error' : navStatus === 404 ? 'page not found' : navStatus === 403 ? 'access forbidden' : 'client error'})`,
-            warning: `HTTP ${navStatus} — the page loaded but returned an error status. The tab is still usable.`
-          };
+        const navHttpError = WebTool._resultForHttpStatus(navStatus, { context: 'Page' });
+        if (navHttpError) {
+          return { ...navHttpError, url: tabInfo.url };
         }
         return { success: true, url: tabInfo.url, httpStatus: navStatus };
       }
