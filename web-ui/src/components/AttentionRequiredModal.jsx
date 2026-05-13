@@ -15,6 +15,8 @@ import { ISSUE_TYPES } from '../hooks/useAttentionRequired.js';
 import { CONSENT_LEVELS } from '../hooks/useConsent.js';
 import { api } from '../services/api.js';
 import { useAppStore } from '../stores/appStore.js';
+import { useModelsStore } from '../stores/modelsStore.js';
+import { skipProviderKey } from '../utils/providerKeySkip.js';
 import toast from 'react-hot-toast';
 
 const SETTINGS_STORAGE_KEY = 'loxia-settings';
@@ -39,6 +41,11 @@ function AttentionRequiredModal({ issues, onResolve, onClose }) {
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const sessionId = useAppStore((state) => state.sessionId);
+  // Read at modal open. Used to tailor the skip toast — Ollama users get
+  // a confirmation that local models are available; everyone else gets a
+  // gentle "limited mode" note. Stored in modelsStore by the rest of the
+  // app, so we don't need to refetch here.
+  const ollamaAvailable = useModelsStore((state) => state.ollamaAvailable);
 
   // Load existing key for the currently-selected provider, if any.
   useEffect(() => {
@@ -84,6 +91,24 @@ function AttentionRequiredModal({ issues, onResolve, onClose }) {
     } catch (error) {
       console.error('Failed to save consent:', error);
     }
+  };
+
+  // Skip path — same persistent flag the onboarding wizard sets, so the
+  // user is never asked twice. Falling back to Ollama works as long as
+  // the user starts the daemon; if it isn't running, the app still
+  // functions but model calls will fail until they add a key from
+  // Settings. We don't gate the skip on Ollama availability — that's
+  // the user's call.
+  const handleSkipApiKey = () => {
+    skipProviderKey();
+    if (ollamaAvailable) {
+      toast.success('We will not ask again. Local Ollama models are available.');
+    } else {
+      toast('We will not ask again. Add a key any time from Settings.', {
+        icon: 'ℹ️',
+      });
+    }
+    onResolve(ISSUE_TYPES.API_KEY_MISSING);
   };
 
   // Handle API key save — writes the key under the selected provider.
@@ -349,13 +374,26 @@ function AttentionRequiredModal({ issues, onResolve, onClose }) {
                   </p>
                 </div>
 
-                <button
-                  onClick={handleSaveApiKey}
-                  disabled={!apiKey.trim()}
-                  className="button-primary w-full disabled:opacity-50"
-                >
-                  Save key & continue
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={handleSaveApiKey}
+                    disabled={!apiKey.trim()}
+                    className="button-primary w-full disabled:opacity-50"
+                  >
+                    Save key & continue
+                  </button>
+                  {/* Skip path mirrors the onboarding wizard — same
+                      persistent flag, so anyone who skipped during
+                      onboarding never sees this dialog at all, and anyone
+                      who skips here is not prompted again. Continuation
+                      is always enabled (no disabled state). */}
+                  <button
+                    onClick={handleSkipApiKey}
+                    className="w-full text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:underline py-1.5"
+                  >
+                    Skip for now
+                  </button>
+                </div>
               </div>
             </div>
           )}

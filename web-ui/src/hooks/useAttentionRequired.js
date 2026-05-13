@@ -5,14 +5,23 @@
  *
  * Current issues tracked:
  * - Privacy consent (analytics data collection)
- * - Provider key missing (any of: openai/anthropic/gemini/xai vendor keys
- *   stored locally, OR a reachable Ollama daemon for local-only use)
+ * - Provider key missing — fired only when ALL of the following are true:
+ *     a. no vendor key for openai/anthropic/gemini/xai
+ *     b. user has not explicitly skipped (loxia-provider-key-skipped)
+ *     c. Ollama is not a usable provider — i.e. either disabled in
+ *        loxia-ollama-settings, OR the local daemon is unreachable, OR
+ *        no models are installed yet.
+ *   So a user who chose Ollama during onboarding and has at least one
+ *   local model never sees this reminder.
  */
 
 import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
+import { isProviderKeySkipped, PROVIDER_KEY_SKIP_EVENT } from '../utils/providerKeySkip.js';
+import { useModelsStore } from '../stores/modelsStore.js';
 
 const SETTINGS_STORAGE_KEY = 'loxia-settings';
 const CONSENT_STORAGE_KEY = 'loxia-analytics-consent';
+const OLLAMA_SETTINGS_KEY = 'loxia-ollama-settings';
 
 // Issue types
 export const ISSUE_TYPES = {
@@ -55,12 +64,8 @@ const checkPrivacyConsent = () => {
 };
 
 /**
- * Check whether at least one provider is usable.
- * "Usable" means the user has stored a vendor key for any of openai /
- * anthropic / gemini / xai. Ollama doesn't appear here because we
- * can't reliably probe the local daemon from a synchronous check;
- * if the user has zero vendor keys, the modal nudges them to set
- * one — they can dismiss it and use Ollama anyway.
+ * Has the user stored a cloud vendor key for any of openai / anthropic /
+ * gemini / xai?
  */
 const checkApiKeyConfigured = () => {
   try {
@@ -78,6 +83,38 @@ const checkApiKeyConfigured = () => {
 };
 
 /**
+ * Is Ollama a *usable* provider right now?
+ *
+ *   - Enabled in loxia-ollama-settings (default true if never saved).
+ *   - The local daemon is reachable (modelsStore.ollamaAvailable).
+ *   - At least one model is installed (modelsStore.ollamaModels.length).
+ *
+ * Reads from zustand synchronously — fine because modelsStore eagerly
+ * runs `fetchModels()` at module load, and we subscribe to changes
+ * below so the issue list re-evaluates as state arrives.
+ *
+ * Returns false during the very first render before fetchModels()
+ * resolves; the early-load flash is suppressed in getIssues() via the
+ * `lastFetched` gate.
+ */
+const checkOllamaUsable = () => {
+  let enabled = true; // Default: enabled if the user never opened Settings.
+  try {
+    const raw = localStorage.getItem(OLLAMA_SETTINGS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.enabled === false) enabled = false;
+    }
+  } catch (error) {
+    console.error('Failed to read ollama settings:', error);
+  }
+  if (!enabled) return false;
+
+  const { ollamaAvailable, ollamaModels } = useModelsStore.getState();
+  return !!ollamaAvailable && Array.isArray(ollamaModels) && ollamaModels.length > 0;
+};
+
+/**
  * Get all current issues that need attention
  */
 const getIssues = () => {
@@ -92,7 +129,22 @@ const getIssues = () => {
     });
   }
 
-  if (!checkApiKeyConfigured()) {
+  // The "Provider Key Required" reminder is suppressed when:
+  //   1. Any cloud vendor key is configured, OR
+  //   2. The user explicitly chose Skip-for-now (in onboarding or in
+  //      this very modal — the persistent flag covers both), OR
+  //   3. Ollama is a usable local provider (enabled + reachable + has
+  //      at least one model). This is what makes the Ollama happy path
+  //      stop showing the modal.
+  //
+  // We also suppress during the brief initial-fetch window, before
+  // modelsStore has had a chance to probe Ollama. Without this gate
+  // the modal would flash open then auto-close on first render for
+  // every Ollama-only user.
+  const modelsLoaded = useModelsStore.getState().lastFetched !== null;
+  const providerSatisfied =
+    checkApiKeyConfigured() || isProviderKeySkipped() || checkOllamaUsable();
+  if (!providerSatisfied && modelsLoaded) {
     issues.push({
       type: ISSUE_TYPES.API_KEY_MISSING,
       title: 'Provider Key Required',
@@ -156,14 +208,36 @@ export function useAttentionRequired() {
     window.addEventListener('consent-updated', handleUpdate);
     window.addEventListener('settings-updated', handleUpdate);
     window.addEventListener('apikey-updated', handleUpdate);
+    window.addEventListener(PROVIDER_KEY_SKIP_EVENT, handleUpdate);
     window.addEventListener('attention-modal-opened', handleModalOpened);
+
+    // Subscribe to modelsStore so the Provider Key Required issue
+    // disappears the moment Ollama becomes usable (e.g. after
+    // onboarding's StepAgent calls fetchOllamaModels). Watching only
+    // the fields we care about avoids needless re-evaluations.
+    const unsubscribeModels = useModelsStore.subscribe(
+      (state) => ({
+        available: state.ollamaAvailable,
+        modelCount: Array.isArray(state.ollamaModels) ? state.ollamaModels.length : 0,
+        lastFetched: state.lastFetched,
+      }),
+      () => handleUpdate(),
+      {
+        equalityFn: (a, b) =>
+          a.available === b.available &&
+          a.modelCount === b.modelCount &&
+          a.lastFetched === b.lastFetched,
+      },
+    );
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('consent-updated', handleUpdate);
       window.removeEventListener('settings-updated', handleUpdate);
       window.removeEventListener('apikey-updated', handleUpdate);
+      window.removeEventListener(PROVIDER_KEY_SKIP_EVENT, handleUpdate);
       window.removeEventListener('attention-modal-opened', handleModalOpened);
+      unsubscribeModels();
     };
   }, [refreshIssues]);
 
@@ -212,7 +286,16 @@ export function useAttentionRequired() {
 
     // Specific checks
     hasPrivacyConsent: checkPrivacyConsent(),
+    // True if a cloud vendor key is set. Narrower than hasProvider —
+    // kept for callers that genuinely care about "do we have a paid
+    // remote model available" vs "is any provider usable at all".
     hasApiKey: checkApiKeyConfigured(),
+    // True if any provider is usable: a cloud key, OR a usable Ollama
+    // (enabled + reachable + has a model), OR the user explicitly
+    // skipped. This is what the sidebar warning should key off — the
+    // user doesn't care about "key missing" if Ollama is fine.
+    hasProvider:
+      checkApiKeyConfigured() || checkOllamaUsable() || isProviderKeySkipped(),
 
     // Actions
     openModal,
