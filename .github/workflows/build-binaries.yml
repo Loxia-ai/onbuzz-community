@@ -370,9 +370,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Derive the version from the git tag so the electron-built
+          # artifacts (OnBuzz Community-<version>.dmg / .exe / .AppImage)
+          # match the version baked into the CLI artifacts a few jobs
+          # above. Without `extraMetadata.version`, electron-builder
+          # reads package.json — which carries the upstream proprietary
+          # codebase's version (e.g. 4.6.2) and ends up in every
+          # filename, giving the v1.0 release a confusing mix of "1.0"
+          # CLI artifacts and "4.6.2" desktop artifacts.
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="1.0.0"; fi
+
           npx electron-builder ${{ matrix.platform.target }} \
             -c.productName="OnBuzz Community" \
             -c.appId=com.onbuzz.community \
+            -c.extraMetadata.version="${VERSION}" \
             --publish never
 
       - name: Upload Electron artifact
