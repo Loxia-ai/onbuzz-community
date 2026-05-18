@@ -257,6 +257,17 @@ class OllamaService {
     let fullContent = '';
     let promptTokens = 0;
     let completionTokens = 0;
+    let chunkCount = 0;
+    let finishReason = 'stop';
+    let toolCalls = null;
+
+    // Low-noise lifecycle marker — helps spot stalls between request and
+    // first chunk (the symptom of a missing model, daemon hang, or
+    // socket-level wedge). Pair with the "stream complete" log below.
+    this.logger?.info(`[Ollama] stream start ${ollamaName}`, {
+      messages:  ollamaMessages.length,
+      maxTokens: options.maxTokens || 4096,
+    });
 
     try {
       const stream = await this.client.chat({
@@ -274,6 +285,7 @@ class OllamaService {
       }
 
       for await (const chunk of stream) {
+        chunkCount += 1;
         const content = chunk.message?.content || '';
         if (content) {
           fullContent += content;
@@ -282,10 +294,15 @@ class OllamaService {
           }
         }
 
-        // Final chunk has eval counts
+        // Final chunk has eval counts and (when the model called functions)
+        // the OpenAI-shaped tool_calls array on chunk.message.
         if (chunk.done) {
           promptTokens = chunk.prompt_eval_count || this._estimateTokens(ollamaMessages);
           completionTokens = chunk.eval_count || this._estimateTokens([{ content: fullContent }]);
+          if (chunk.done_reason) finishReason = chunk.done_reason;
+          if (Array.isArray(chunk.message?.tool_calls) && chunk.message.tool_calls.length > 0) {
+            toolCalls = chunk.message.tool_calls;
+          }
         }
       }
 
@@ -296,13 +313,21 @@ class OllamaService {
         total_tokens: promptTokens + completionTokens
       };
 
-      this.logger?.info(`[Ollama] ${ollamaName} streamed in ${duration}ms (${usage.total_tokens} tokens)`);
+      this.logger?.info(`[Ollama] stream complete ${ollamaName}`, {
+        durationMs:    duration,
+        chunkCount,
+        contentLength: fullContent.length,
+        finishReason,
+        toolCalls:     toolCalls ? toolCalls.length : 0,
+        totalTokens:   usage.total_tokens,
+      });
 
       const result = {
         content: fullContent,
         model: modelId,
         tokenUsage: usage,
-        finishReason: 'stop'
+        finishReason,
+        ...(toolCalls ? { toolCalls } : {}),
       };
 
       if (onDone) {
@@ -311,7 +336,12 @@ class OllamaService {
 
       return result;
     } catch (err) {
-      this.logger?.error(`[Ollama] Stream error for ${ollamaName}: ${err.message}`);
+      this.logger?.error(`[Ollama] stream failed for ${ollamaName}`, {
+        message:       err.message,
+        chunkCount,
+        contentLength: fullContent.length,
+        elapsedMs:     Date.now() - startTime,
+      });
       if (onError) {
         onError(err);
       }
