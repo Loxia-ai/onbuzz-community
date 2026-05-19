@@ -13,7 +13,7 @@
 **👉 New here? Start with the [official site](https://onbuzz.loxia.ai) and the [training program](https://onbuzz.loxia.ai/training).**
 **👉 Want to contribute? Check the [public roadmap](https://roadmap.onbuzz.loxia.ai/) for open tasks.**
 
-[Quick Start](#-quick-start) · [What it does](#-what-it-does) · [Why it's different](#-why-its-different) · [Use cases](#-example-use-cases) · [Contribute](#-contributing)
+[Quick Start](#-quick-start) · [What it does](#-what-it-does) · [Why it's different](#-why-its-different) · [Use cases](#-example-use-cases) · [Tool reference](./docs/TOOL_REFERENCE.md) · [Contribute](#-contributing)
 
 </div>
 
