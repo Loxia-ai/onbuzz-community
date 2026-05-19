@@ -1,5 +1,14 @@
 # Providers
 
+> **What this page covers**
+>
+> - Built-in provider setup for **OpenAI**, **Anthropic**, **Google Gemini**, **xAI**, and **Ollama**.
+> - How OnBuzz routes model names to providers, including model-prefix matching and the default-provider fallback.
+> - Vendor-specific notes for auth, streaming, tool calling, reasoning output, local Ollama models, and custom **OpenAI-compatible endpoints** such as OpenRouter, Together, Fireworks, Groq, vLLM, LiteLLM, Azure OpenAI, or self-hosted inference servers.
+> - How to add a new native provider adapter when an API does not fit the OpenAI-compatible path.
+>
+> Missing a provider? Open a GitHub issue with the vendor name, API docs link, and any models you want OnBuzz to support.
+
 OnBuzz Community ships with five built-in provider adapters. Each one talks
 directly to the vendor's API — your keys are stored locally (encrypted)
 and OnBuzz Community has no servers in between.
