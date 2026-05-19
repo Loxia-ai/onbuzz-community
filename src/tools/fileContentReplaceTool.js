@@ -116,6 +116,10 @@ linesLimit (optional):
   - Examples: "5", "5,10,15", "5-10", "1-5,10,15-20"
   - Line numbers are 1-based
 
+dryRun (optional):
+  - Preview changes first with unified diff output
+  - No backups or file writes are performed when true
+
 EXAMPLES:
 
 Example 1 - Basic replacement:
@@ -233,6 +237,7 @@ LIMITATIONS:
     }
 
     return {
+      dryRun: parsed.dryRun === true,
       files: parsed.files.map(file => ({
         path: file.path,
         replacements: (file.replacements || []).map(r => ({
@@ -252,6 +257,8 @@ LIMITATIONS:
    */
   parseXML(content) {
     const files = [];
+    const dryRunMatch = /<dry-?run>(true|false)<\/dry-?run>/i.exec(content);
+    const dryRun = dryRunMatch ? dryRunMatch[1].toLowerCase() === 'true' : false;
 
     // Extract <file> tags
     const filePattern = /<file\s+path="([^"]+)">([\s\S]*?)<\/file>/gi;
@@ -311,7 +318,7 @@ LIMITATIONS:
       }
     }
 
-    return { files };
+    return { dryRun, files };
   }
 
   /**
@@ -359,6 +366,11 @@ LIMITATIONS:
    */
   customValidateParameters(params) {
     const errors = [];
+
+    // Validate dry run flag
+    if (Object.prototype.hasOwnProperty.call(params, 'dryRun') && typeof params.dryRun !== 'boolean') {
+      errors.push('dryRun must be a boolean');
+    }
 
     // Validate files array
     if (!params.files || !Array.isArray(params.files)) {
@@ -442,7 +454,7 @@ LIMITATIONS:
     if (!firstFile.replacements || !Array.isArray(firstFile.replacements) || firstFile.replacements.length === 0) {
       return false;
     }
-    return firstFile.replacements[0].hasOwnProperty('mode');
+    return Object.prototype.hasOwnProperty.call(firstFile.replacements[0], 'mode');
   }
 
   /**
@@ -466,6 +478,7 @@ LIMITATIONS:
     }
 
     const { files } = params;
+    const dryRun = params.dryRun === true;
     const { projectDir, agentId, directoryAccess } = context;
 
     // Determine working directory (respect multi-directory access)
@@ -481,6 +494,7 @@ LIMITATIONS:
 
     this.logger?.info('Executing file content replace', {
       fileCount: files.length,
+      dryRun,
       workingDirectory,
       agentId
     });
@@ -497,7 +511,7 @@ LIMITATIONS:
     // Process each file
     for (const file of files) {
       try {
-        const fileResult = await this.processFile(file, workingDirectory, directoryAccess);
+        const fileResult = await this.processFile(file, workingDirectory, directoryAccess, dryRun);
         results.push(fileResult);
 
         stats.filesProcessed++;
@@ -535,7 +549,7 @@ LIMITATIONS:
    * @param {Object} directoryAccess - Directory access config
    * @returns {Promise<Object>} File processing result
    */
-  async processFile(file, workingDirectory, directoryAccess) {
+  async processFile(file, workingDirectory, directoryAccess, dryRun = false) {
     const { path: filePath, replacements } = file;
 
     // Resolve path
@@ -570,7 +584,7 @@ LIMITATIONS:
 
     // Create backup
     let backupCreated = false;
-    if (this.replaceConfig.CREATE_BACKUPS) {
+    if (!dryRun && this.replaceConfig.CREATE_BACKUPS) {
       const backupPath = resolvedPath + this.replaceConfig.BACKUP_EXTENSION;
       try {
         await fs.writeFile(backupPath, originalContent, 'utf-8');
@@ -589,8 +603,7 @@ LIMITATIONS:
         content,
         replacement.oldContent,
         replacement.newContent,
-        replacement.linesLimit,
-        replacement.mode
+        replacement.linesLimit
       );
 
       content = result.newContent;
@@ -606,12 +619,12 @@ LIMITATIONS:
     }
 
     // Write back if changes were made
-    if (replacementsMade > 0) {
+    if (replacementsMade > 0 && !dryRun) {
       await fs.writeFile(resolvedPath, content, 'utf-8');
     }
 
     // Generate diff
-    const diff = replacementsMade > 0
+    const diff = (dryRun || replacementsMade > 0)
       ? this.generateDiff(originalContent, content)
       : null;
 
@@ -623,9 +636,10 @@ LIMITATIONS:
       backupCreated,
       replacementDetails,
       diff,
+      dryRun,
       message: replacementsMade > 0
-        ? `Made ${replacementsMade} replacement(s) in ${filePath}`
-        : `No replacements made in ${filePath} (content not found)`
+        ? `${dryRun ? 'Dry-run: would make' : 'Made'} ${replacementsMade} replacement(s) in ${filePath}`
+        : `${dryRun ? 'Dry-run: no' : 'No'} replacements made in ${filePath} (content not found)`
     };
   }
 
@@ -662,10 +676,9 @@ LIMITATIONS:
    * @param {string} oldContent - Content to replace
    * @param {string} newContent - Replacement content
    * @param {string|null} linesLimit - Line limit specification
-   * @param {string} mode - Trim mode
    * @returns {Object} Result with newContent and count
    */
-  async applyReplacement(content, oldContent, newContent, linesLimit, mode) {
+  async applyReplacement(content, oldContent, newContent, linesLimit) {
     if (!linesLimit) {
       // Replace in entire file (simple string replace, not regex)
       const count = this.countOccurrences(content, oldContent);
