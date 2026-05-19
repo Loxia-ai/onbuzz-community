@@ -273,6 +273,20 @@ describe('AgentCommunicationTool', () => {
       const senderStats = tool.agentMessageCounts.get('agent-sender');
       expect(senderStats.sent).toBe(1);
     });
+
+    test('honors documented requiresReply camelCase field', async () => {
+      const { tool, context } = createTestSetup();
+      const result = await tool.execute({
+        action: 'send-message',
+        recipient: 'agent-recipient',
+        subject: 'FYI',
+        message: 'No reply needed',
+        requiresReply: false
+      }, context);
+
+      expect(result.success).toBe(true);
+      expect(tool.messages.get(result.messageId).requiresReply).toBe(false);
+    });
   });
 
   // ── reply-to-message ────────────────────────────────────────────
@@ -294,6 +308,25 @@ describe('AgentCommunicationTool', () => {
         'message-id': msgId,
         message: 'All good!'
       }, { agentId: 'agent-recipient', agentPool: context.agentPool });
+      expect(replyResult.success).toBe(true);
+      expect(replyResult.depth).toBe(1);
+    });
+
+    test('accepts documented messageId camelCase field', async () => {
+      const { tool, context } = createTestSetup();
+      const sendResult = await tool.execute({
+        action: 'send-message',
+        recipient: 'agent-recipient',
+        subject: 'Question',
+        message: 'What is the status?'
+      }, context);
+
+      const replyResult = await tool.execute({
+        action: 'reply-to-message',
+        messageId: sendResult.messageId,
+        message: 'All good!'
+      }, { agentId: 'agent-recipient', agentPool: context.agentPool });
+
       expect(replyResult.success).toBe(true);
       expect(replyResult.depth).toBe(1);
     });
@@ -427,6 +460,25 @@ describe('AgentCommunicationTool', () => {
         'conversation-id': sendResult.conversationId,
         reason: 'Work complete'
       }, context);
+      expect(result.success).toBe(true);
+      expect(result.status).toBe('ended');
+    });
+
+    test('accepts documented conversationId camelCase field', async () => {
+      const { tool, context } = createTestSetup();
+      const sendResult = await tool.execute({
+        action: 'send-message',
+        recipient: 'agent-recipient',
+        subject: 'End me',
+        message: 'Done'
+      }, context);
+
+      const result = await tool.execute({
+        action: 'mark-conversation-ended',
+        conversationId: sendResult.conversationId,
+        reason: 'Work complete'
+      }, context);
+
       expect(result.success).toBe(true);
       expect(result.status).toBe('ended');
     });

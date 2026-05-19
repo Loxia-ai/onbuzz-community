@@ -163,7 +163,7 @@ Most things just work. A few env vars are useful:
 
 User overrides also work without env vars: drop `~/.onbuzz/models.json` or `~/.onbuzz/benchmarks.json` and OnBuzz will pick them up.
 
-For per-provider details (auth headers, special models, OpenAI-compatible custom endpoints), see [`docs/PROVIDERS.md`](./docs/PROVIDERS.md).
+For per-provider details (auth headers, special models, OpenAI-compatible custom endpoints), see [`docs/PROVIDERS.md`](./docs/PROVIDERS.md). For the built-in task, message, delay, and completion flow agents use to coordinate, see [`docs/AGENT_COORDINATION.md`](./docs/AGENT_COORDINATION.md).
 
 ---
 
