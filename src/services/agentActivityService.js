@@ -17,8 +17,7 @@ import {
   AGENT_MODES,
   AGENT_STATUS,
   AGENT_ACTIVITY_STATUS,
-  TASK_STATUS,
-  SCHEDULER_CONFIG
+  TASK_STATUS
 } from '../utilities/constants.js';
 
 /**
@@ -69,28 +68,6 @@ function getMessageQueueStatus(agent) {
   };
 }
 
-// TODO: Remove after 2026-02-10 if not proven as needed.
-// No longer called from shouldAgentBeActive — AGENT mode uses task-based
-// scheduling (messages auto-create tasks at arrival), CHAT mode checks
-// messageQueues directly via getMessageQueueStatus().
-//
-// function hasUnprocessedIncomingMessages(agent) {
-//   if (agent.incomingMessages && Array.isArray(agent.incomingMessages) && agent.incomingMessages.length > 0) {
-//     return true;
-//   }
-//   if (agent.interAgentTracking && agent.interAgentTracking instanceof Map && agent.interAgentTracking.size > 0) {
-//     const now = Date.now();
-//     for (const tracking of agent.interAgentTracking.values()) {
-//       if (tracking.lastReceived &&
-//           (now - tracking.lastReceived) < SCHEDULER_CONFIG.RECENT_MESSAGE_THRESHOLD_MS &&
-//           tracking.lastType === 'received') {
-//         return true;
-//       }
-//     }
-//   }
-//   return false;
-// }
-
 /**
  * Check if agent is currently delayed
  * @param {Object} agent - Agent object
@@ -126,15 +103,6 @@ function isAgentPaused(agent) {
 
   return false;
 }
-
-// TODO: Remove after 2026-02-10 if not proven as needed.
-// Job-done now clears the task list instead of switching mode.
-// The autonomousWorkComplete flag is still set for reference but
-// is no longer used as a scheduling condition.
-//
-// function hasAutonomousWorkComplete(agent) {
-//   return agent.autonomousWorkComplete === true;
-// }
 
 /**
  * Centralized function to determine if an agent should be active in the scheduler
@@ -398,11 +366,9 @@ export function shouldSkipIteration(agent) {
 export {
   hasPendingTasks,
   getMessageQueueStatus,
-  // hasUnprocessedIncomingMessages, // TODO: Remove after 2026-02-10
   isAgentDelayed,
   isAgentPaused,
   isExecutingTools,
-  // hasAutonomousWorkComplete      // TODO: Remove after 2026-02-10
 };
 
 export default {
@@ -412,9 +378,7 @@ export default {
   shouldSkipIteration,
   hasPendingTasks,
   getMessageQueueStatus,
-  // hasUnprocessedIncomingMessages, // TODO: Remove after 2026-02-10
   isAgentDelayed,
   isAgentPaused,
   isExecutingTools,
-  // hasAutonomousWorkComplete      // TODO: Remove after 2026-02-10
 };
