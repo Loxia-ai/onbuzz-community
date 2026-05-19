@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Loxia Terminal UI Launcher (Ink-based)
+ * OnBuzz Terminal UI Launcher (Ink-based)
  * Cross-platform compatible including Windows
  */
 
@@ -47,10 +47,10 @@ async function isServerRunning(host, port) {
 }
 
 /**
- * Start the Loxia server
+ * Start the OnBuzz server
  */
 async function startServer(host, port) {
-  console.log('🚀 Starting Loxia server...');
+  console.log('🚀 Starting OnBuzz server...');
 
   return new Promise((resolve, reject) => {
     const serverProcess = spawn('node', [
@@ -100,7 +100,7 @@ async function startServer(host, port) {
 async function main() {
   try {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('  Loxia Autopilot One - Terminal UI');
+    console.log('  OnBuzz Community - Terminal UI');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('');
 

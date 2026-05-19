@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Launcher: Start Loxia server + Terminal UI together
+ * Launcher: Start OnBuzz server + Terminal UI together
  * Starts the server in background, then opens the Terminal UI
  */
 
@@ -55,11 +55,11 @@ async function checkServerReady(maxAttempts = 10, interval = 500) {
 }
 
 /**
- * Start the Loxia server in background
+ * Start the OnBuzz server in background
  */
 async function startServer() {
   return new Promise((resolve) => {
-    console.log('🚀 Starting Loxia server...');
+    console.log('🚀 Starting OnBuzz server...');
 
     const serverScript = join(rootDir, 'src', 'index.js');
 
@@ -173,7 +173,7 @@ process.on('exit', () => {
  */
 async function main() {
   console.log('╔════════════════════════════════════════════════╗');
-  console.log('║   Loxia AI Agents - Server + Terminal UI      ║');
+  console.log('║   OnBuzz Community - Server + Terminal UI     ║');
   console.log('╚════════════════════════════════════════════════╝');
   console.log('');
 
