@@ -10,6 +10,7 @@ Thanks for being here. **Your first PR can land this week.** This doc is short o
 > | 🌐 **Project site** | **[onbuzz.loxia.ai](https://onbuzz.loxia.ai)** |
 > | 🎓 **Training** | **[onbuzz.loxia.ai/training](https://onbuzz.loxia.ai/training)** — recommended for first-timers |
 > | 📅 **12-week dev program** | [`docs/COMMUNITY_PROGRAM.md`](./docs/COMMUNITY_PROGRAM.md) — 48 ready-to-claim tasks |
+> | 🧩 **Skill authoring** | [`docs/AUTHORING_SKILLS.md`](./docs/AUTHORING_SKILLS.md) — PR-ready format for `skills/` contributions |
 > | 💬 **Discussions** | [github.com/Loxia-ai/onbuzz-community/discussions](https://github.com/Loxia-ai/onbuzz-community/discussions) |
 
 ## Contents
