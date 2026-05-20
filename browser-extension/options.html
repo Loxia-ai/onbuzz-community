@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Send to OnBuzz — Options</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --fg: #1a1a1a;
+      --muted: #5f6368;
+      --border: #d0d0d0;
+      --accent: #1a73e8;
+      --success: #137333;
+      --error: #c5221f;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1f1f1f;
+        --fg: #e8eaed;
+        --muted: #9aa0a6;
+        --border: #3c3c3c;
+        --accent: #8ab4f8;
+        --success: #81c995;
+        --error: #f28b82;
+      }
+    }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg); color: var(--fg);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    main { max-width: 520px; margin: 32px auto; padding: 0 24px 32px; }
+    h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+    p.subtitle { margin: 0 0 24px; color: var(--muted); }
+    label { display: block; margin-top: 16px; font-weight: 500; }
+    .hint { margin-top: 4px; font-size: 12px; color: var(--muted); }
+    input[type="text"], input[type="password"] {
+      box-sizing: border-box; width: 100%;
+      margin-top: 6px; padding: 8px 10px;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: var(--bg); color: var(--fg); font: inherit;
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button {
+      margin-top: 20px; padding: 8px 16px;
+      border: none; border-radius: 6px;
+      background: var(--accent); color: #fff;
+      font: 500 14px/1 inherit; cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: default; }
+    .status { margin-top: 14px; min-height: 1.2em; font-size: 13px; }
+    .status.success { color: var(--success); }
+    .status.error { color: var(--error); }
+    details { margin-top: 24px; font-size: 13px; color: var(--muted); }
+    details summary { cursor: pointer; }
+    code {
+      background: rgba(127,127,127,0.15);
+      padding: 1px 4px; border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Send to OnBuzz — Options</h1>
+    <p class="subtitle">Configure where this extension sends your selections.</p>
+
+    <label for="serverUrl">Server URL</label>
+    <input id="serverUrl" type="text" placeholder="http://localhost:8080" />
+    <div class="hint">Where your local OnBuzz server is listening. The default works for most installs.</div>
+
+    <label for="token">Extension token</label>
+    <input id="token" type="password" placeholder="Paste your OnBuzz extension token" autocomplete="off" />
+    <div class="hint">OnBuzz generates this on first run. See the docs link below for how to find it.</div>
+
+    <button id="save" type="button">Save</button>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <details>
+      <summary>Where is my token?</summary>
+      <p>On first run of OnBuzz, a token is generated and stored at
+      <code>&lt;OnBuzz user data dir&gt;/settings/extension-token.json</code>.
+      Open that file and copy the <code>token</code> field. You can also set the
+      <code>ONBUZZ_EXTENSION_TOKEN</code> env var on the server — that takes
+      precedence over the file.</p>
+      <p>Full instructions: <code>docs/BROWSER_EXTENSION.md</code> in the OnBuzz repo.</p>
+    </details>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

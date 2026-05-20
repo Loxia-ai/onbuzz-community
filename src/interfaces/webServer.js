@@ -31,6 +31,38 @@ import { getVisualEditorServer, getVisualEditorPort, getVisualEditorBaseUrl, set
 import { getCredentialVault } from '../services/credentialVault.js';
 import { getUserDataPaths } from '../utilities/userDataDir.js';
 import { projectActiveRuns } from '../utilities/flowRunFilters.js';
+import { verifyExtensionToken } from '../services/extensionToken.js';
+import {
+  QUICK_SEND_AGENT_NAME,
+  buildQuickSendAgentConfig,
+  diffQuickSendPolicy
+} from '../services/quickSendPolicy.js';
+import {
+  withAgentLock as withQuickSendAgentLock,
+  waitForAgentIdle as waitForQuickSendAgentIdle,
+  ensureMigrated as ensureQuickSendMigrated,
+  mintThread as mintQuickSendThread,
+  swapToThread as swapQuickSendThread,
+  touchActiveThread as touchQuickSendActiveThread,
+  listThreads as listQuickSendThreads,
+  readThreadMessages as readQuickSendThreadMessages,
+  saveIndex as saveQuickSendIndex,
+  AgentBusyError as QuickSendAgentBusyError
+} from '../services/quickSendThreadStore.js';
+import {
+  fingerprintSelection as quickSendFingerprintSelection,
+  decideMode as decideQuickSendHistoryMode,
+  archiveLiveMessages as archiveQuickSendLiveMessages,
+  composeSourceAnchor as composeQuickSendSourceAnchor,
+  composeQuickSendUserMessage
+} from '../services/quickSendHistoryPolicy.js';
+
+// Well-known session id for all browser-extension quick-send calls.
+// The extension uses REST polling, never WebSocket, so this session
+// has zero WS connections by design. broadcastToSession recognises
+// this prefix and skips the (noisy, wasteful) fan-out for it.
+const EXTENSION_SESSION_PREFIX = 'extension-';
+const QUICK_SEND_SESSION_ID = `${EXTENSION_SESSION_PREFIX}quick-send`;
 
 // Connect visual editor server to bridge (enables element selection forwarding)
 setBridgeGetter(getVisualEditorBridge);
@@ -1015,7 +1047,668 @@ class WebServer {
         });
       }
     });
-    
+
+    // ── Browser-extension Quick Send ────────────────────────────────
+    // POST /api/chat/quick-send
+    //   Headers: X-OnBuzz-Token: <token>
+    //   Body:    {
+    //     selected_text: string,        // required, the highlighted text
+    //     source_url?: string,          // page URL
+    //     page_title?: string,          // page <title>
+    //     surrounding_text?: string,    // optional small context window
+    //     user_message?: string         // optional follow-up question
+    //   }
+    //
+    // Reuses (or creates) an agent named exactly "Quick Send" and routes
+    // the composed message through the normal orchestrator pipeline. The
+    // backend — not the extension — decides the allowed-tool profile,
+    // applied via agent.metadata.restrictedToolset and enforced inside
+    // messageProcessor.executeTools. See services/quickSendPolicy.js.
+    //
+    // GET /api/chat/quick-send/messages?agentId=...&since=N
+    //   Polled by the side panel to surface the assistant's reply.
+    this.app.post('/api/chat/quick-send', async (req, res) => {
+      // Hard ceiling on every text field. Don't rely on the extension;
+      // the entire point of this endpoint is that the extension's input
+      // is untrusted.
+      const MAX_FIELD_BYTES = 100 * 1024;
+      const utf8Bytes = (s) => Buffer.byteLength(s || '', 'utf8');
+
+      try {
+        const presented = req.get('X-OnBuzz-Token');
+        const ok = await verifyExtensionToken(presented);
+        if (!ok) {
+          return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+            ok: false,
+            error: 'Invalid or missing X-OnBuzz-Token header'
+          });
+        }
+
+        const body = req.body || {};
+        const {
+          selected_text: selectedText,
+          source_url: sourceUrl,
+          page_title: pageTitle,
+          surrounding_text: surroundingText,
+          user_message: userMessage,
+          thread_id: threadIdInput,
+          new_thread: newThreadInput
+        } = body;
+
+        if (typeof selectedText !== 'string' || selectedText.trim().length === 0) {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            ok: false,
+            error: 'Field "selected_text" is required and must be a non-empty string'
+          });
+        }
+        const stringOrUndefined = (v, name) => {
+          if (v === undefined || v === null) return null;
+          if (typeof v !== 'string') {
+            throw new Error(`Field "${name}" must be a string when provided`);
+          }
+          return v;
+        };
+        let safeSourceUrl, safePageTitle, safeSurrounding, safeUserMessage, safeThreadId;
+        try {
+          safeSourceUrl    = stringOrUndefined(sourceUrl, 'source_url');
+          safePageTitle    = stringOrUndefined(pageTitle, 'page_title');
+          safeSurrounding  = stringOrUndefined(surroundingText, 'surrounding_text');
+          safeUserMessage  = stringOrUndefined(userMessage, 'user_message');
+          safeThreadId     = stringOrUndefined(threadIdInput, 'thread_id');
+        } catch (validationErr) {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            ok: false,
+            error: validationErr.message
+          });
+        }
+        if (newThreadInput !== undefined && typeof newThreadInput !== 'boolean') {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            ok: false,
+            error: 'Field "new_thread" must be a boolean when provided'
+          });
+        }
+        const wantsNewThread = newThreadInput === true;
+        for (const [name, val] of Object.entries({
+          selected_text:    selectedText,
+          source_url:       safeSourceUrl,
+          page_title:       safePageTitle,
+          surrounding_text: safeSurrounding,
+          user_message:     safeUserMessage
+        })) {
+          if (val && utf8Bytes(val) > MAX_FIELD_BYTES) {
+            return res.status(HTTP_STATUS.BAD_REQUEST).json({
+              ok: false,
+              error: `Field "${name}" exceeds maximum size of ${MAX_FIELD_BYTES} bytes`
+            });
+          }
+        }
+
+        // Stable sentinel session id for ALL browser-extension calls.
+        //
+        // The extension talks to the server over REST (it polls the
+        // /api/chat/quick-send/messages endpoint) and never opens a
+        // WebSocket. Every assistant reply produced by the scheduler
+        // is still pushed through WebSocketManager.broadcastToSession,
+        // which used to log "No connections for session" and fall back
+        // to fanning the message out to every WS connection in the
+        // system. Two problems with the previous per-request unique
+        // id (`ext-<timestamp>-<rand>`):
+        //   1. It bloated the orchestrator's session map — one
+        //      orphaned record per quick-send for the process lifetime.
+        //   2. It produced one warn + one fallback fan-out per reply.
+        // Using a single well-known id solves (1) and lets the
+        // broadcaster recognise this session as "extension, REST poll,
+        // no WS expected" and skip the broadcast entirely — see
+        // broadcastToSession further down in this file.
+        const sessionId = QUICK_SEND_SESSION_ID;
+        const projectDir = process.cwd();
+
+        // Build the candidate list of "user's working agents" by
+        // consulting BOTH the in-memory pool and the persisted agent
+        // index on disk. The pool alone isn't enough: agents are only
+        // loaded into memory when the web UI fires `resume_session`,
+        // which never happens if the user is driving OnBuzz exclusively
+        // through the extension. In that case the pool is empty even
+        // though the user has plenty of working Ollama agents on disk,
+        // and the picker silently falls through to system.defaultModel
+        // = anthropic-sonnet — which is exactly the bug we're fixing.
+        //
+        // Each candidate has the shape { name, model, lastActivity }
+        // and is filtered to exclude Quick Send agents and any
+        // malformed index entries (e.g. the historical "undefined" key).
+        const collectCandidates = async () => {
+          const pool = await this.orchestrator.agentPool.listActiveAgents();
+          const fromPool = pool
+            .filter((a) => a && a.name && a.name !== QUICK_SEND_AGENT_NAME && a.currentModel)
+            .map((a) => ({ name: a.name, model: a.currentModel, lastActivity: a.lastActivity || null, source: 'pool' }));
+
+          let fromDisk = [];
+          try {
+            const index = await this.orchestrator.stateManager.loadAgentIndex(projectDir);
+            fromDisk = Object.entries(index || {})
+              .filter(([id, v]) => id && id !== 'undefined' && v && v.name && v.name !== QUICK_SEND_AGENT_NAME && v.model)
+              .map(([, v]) => ({ name: v.name, model: v.model, lastActivity: v.lastActivity || null, source: 'disk' }));
+          } catch (err) {
+            this.logger.warn('Quick Send: could not read persisted agent index', { error: err.message });
+          }
+
+          // De-dupe by name (pool entry wins because it carries the
+          // live currentModel, which can differ from the index's
+          // snapshotted `model` if the user switched models mid-session).
+          const byName = new Map();
+          for (const c of fromDisk) byName.set(c.name, c);
+          for (const c of fromPool) byName.set(c.name, c);
+
+          return Array.from(byName.values())
+            .sort((a, b) => {
+              const ta = new Date(a.lastActivity || 0).getTime();
+              const tb = new Date(b.lastActivity || 0).getTime();
+              return tb - ta;
+            });
+        };
+
+        const candidates = await collectCandidates();
+        const pool = await this.orchestrator.agentPool.listActiveAgents();
+        let quickSendAgent = pool.find((a) => a.name === QUICK_SEND_AGENT_NAME);
+
+        if (!quickSendAgent) {
+          // Pick the most-recently-active non-Quick-Send model. Fall
+          // through to system.defaultModel only on a truly fresh
+          // install where the user has no other agents anywhere.
+          const top = candidates[0];
+          const defaultModel = top?.model
+            || this.orchestrator.config?.system?.defaultModel
+            || 'anthropic-sonnet';
+          this.logger.info('Quick Send: creating agent', {
+            pickedModel: defaultModel,
+            pickedFrom: top ? `existing-agent (${top.source})` : 'system-default',
+            referenceAgent: top?.name || null,
+            candidateCount: candidates.length
+          });
+          const createResp = await this.orchestrator.processRequest({
+            interface: INTERFACE_TYPES.WEB,
+            sessionId,
+            action: ORCHESTRATOR_ACTIONS.CREATE_AGENT,
+            payload: buildQuickSendAgentConfig(defaultModel),
+            projectDir
+          });
+          if (!createResp?.success) {
+            return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+              ok: false,
+              error: `Could not create Quick Send agent: ${createResp?.error || 'unknown error'}`
+            });
+          }
+          quickSendAgent = createResp.data;
+        } else {
+          // Heal a Quick Send agent that was created earlier with a
+          // model the user can't actually use. If the agent's current
+          // model doesn't match any other agent's model AND there is a
+          // working alternative on the same machine (in-memory OR
+          // on-disk), switch over.
+          //
+          // We don't touch the model when there ARE no other agents:
+          // in that case the user only has one agent (Quick Send),
+          // there's nothing to learn from, and we leave the model
+          // alone so the existing error path surfaces a real
+          // "configure a provider key" message.
+          const recommendedModel = candidates[0]?.model || null;
+          const needsModelHeal = recommendedModel
+            && quickSendAgent.currentModel
+            && !candidates.some((c) => c.model === quickSendAgent.currentModel);
+
+          const policyUpdates = diffQuickSendPolicy(quickSendAgent) || {};
+          const mergedUpdates = needsModelHeal
+            ? {
+                ...policyUpdates,
+                preferredModel: recommendedModel,
+                currentModel: recommendedModel
+              }
+            : policyUpdates;
+
+          if (Object.keys(mergedUpdates).length > 0) {
+            if (needsModelHeal) {
+              this.logger.info('Quick Send: healing stale model on existing agent', {
+                agentId: quickSendAgent.id,
+                from: quickSendAgent.currentModel,
+                to: recommendedModel,
+                referenceAgent: candidates[0]?.name || null,
+                referenceSource: candidates[0]?.source || null
+              });
+            }
+            await this.orchestrator.processRequest({
+              interface: INTERFACE_TYPES.WEB,
+              sessionId,
+              action: ORCHESTRATOR_ACTIONS.UPDATE_AGENT,
+              payload: { agentId: quickSendAgent.id, updates: mergedUpdates },
+              projectDir
+            });
+          }
+        }
+
+        // ── Thread plumbing ─────────────────────────────────────────
+        //
+        // The agent's conversations.full.messages is "the active thread."
+        // Inactive threads live as sidecar JSON next to the agent state.
+        // Here we (1) lazily migrate any pre-thread history into a
+        // legacy thread, (2) idle-gate so we never swap while the
+        // scheduler is mid-reply, (3) mint or swap to the target thread.
+        // See services/quickSendThreadStore.js for the model.
+        const stateDir = this.orchestrator.stateManager.getStateDir(projectDir);
+        let activeThreadEntry = null;
+        // Captured inside the lock and read after it to log what the
+        // model will see. See services/quickSendHistoryPolicy.js for
+        // the policy itself.
+        let historyMode = 'new-selection';
+        let archivedCount = 0;
+        let liveMessagesBeforeDispatch = 0;
+        let selectedTextFingerprint = null;
+        let sourceAnchorIncluded = false;
+        try {
+          await withQuickSendAgentLock(quickSendAgent.id, async () => {
+            // Idle-gate only when we're actually going to mutate the
+            // conversation array. A plain "continue current thread"
+            // send needs no swap and no wait.
+            if (wantsNewThread || (safeThreadId && safeThreadId !== quickSendAgent.metadata?.activeThreadId)) {
+              await waitForQuickSendAgentIdle({
+                getAgent: (id) => this.orchestrator.agentPool.getAgent(id),
+                agentId: quickSendAgent.id
+              });
+            }
+
+            const index = await ensureQuickSendMigrated({ stateDir, agent: quickSendAgent });
+
+            let target;
+            if (wantsNewThread) {
+              target = await mintQuickSendThread({
+                stateDir,
+                agent: quickSendAgent,
+                index,
+                seed: { pageTitle: safePageTitle, sourceUrl: safeSourceUrl }
+              });
+            } else if (safeThreadId) {
+              target = index.threads.find((t) => t.id === safeThreadId);
+              if (!target) {
+                const e = new Error(`Unknown thread_id: ${safeThreadId}`);
+                e.isUnknownThread = true;
+                throw e;
+              }
+            } else {
+              target = index.threads.find((t) => t.id === index.activeThreadId);
+            }
+
+            if (target && target.id !== index.activeThreadId) {
+              await swapQuickSendThread({
+                stateDir,
+                agent: quickSendAgent,
+                index,
+                targetId: target.id
+              });
+              // Persist the agent file so the on-disk conversations.full
+              // matches the in-memory active thread. Without this, a
+              // crash between swap and the next scheduler tick would
+              // leave index.activeThreadId pointing at one thread while
+              // the agent file still carries the other thread's history.
+              await this.orchestrator.agentPool.persistAgentState(quickSendAgent.id);
+            }
+
+            // Bookkeeping for the active thread. Bumps lastActivity and
+            // late-fills the title/host from the first selection that
+            // arrives with real page metadata. Kept inside the lock so
+            // the index update is atomic with any swap above.
+            await touchQuickSendActiveThread({
+              stateDir,
+              agent: quickSendAgent,
+              index,
+              seed: { pageTitle: safePageTitle, sourceUrl: safeSourceUrl }
+            });
+
+            // Source anchor management. Quick Send is a source-grounded
+            // chat: each thread owns a typed sourceAnchor describing the
+            // highlighted page text. The anchor is NOT a chat turn — it
+            // lives on the thread index entry and is mirrored to
+            // agent.metadata.activeSourceAnchor so the scheduler can
+            // inject it into the system prompt at dispatch time.
+            //
+            //   - Different fingerprint → new selection. Archive prior
+            //     live turns (display intact, scheduler skips them) and
+            //     replace the anchor.
+            //   - Same fingerprint → follow-up. Refresh updatedAt so
+            //     activity is reflected, but the anchor content stays.
+            //
+            // See services/quickSendHistoryPolicy.js.
+            const incomingFingerprint = quickSendFingerprintSelection(selectedText);
+            const storedFingerprint = target?.lastSelectionFingerprint || null;
+            historyMode = decideQuickSendHistoryMode({
+              incomingFingerprint,
+              storedFingerprint
+            });
+            const nextAnchor = composeQuickSendSourceAnchor({
+              selectedText,
+              pageTitle: safePageTitle,
+              sourceUrl: safeSourceUrl,
+              surroundingText: safeSurrounding
+            });
+            if (historyMode === 'new-selection') {
+              archivedCount = archiveQuickSendLiveMessages(
+                quickSendAgent.conversations?.full?.messages || []
+              );
+            }
+            if (target) {
+              target.lastSelectionFingerprint = incomingFingerprint;
+              target.sourceAnchor = nextAnchor;
+              await saveQuickSendIndex({
+                stateDir,
+                agentId: quickSendAgent.id,
+                index
+              });
+            }
+            // Mirror the anchor to in-memory agent metadata so the
+            // scheduler reads it without re-touching disk.
+            quickSendAgent.metadata = {
+              ...(quickSendAgent.metadata || {}),
+              activeSourceAnchor: nextAnchor
+            };
+            selectedTextFingerprint = incomingFingerprint;
+            sourceAnchorIncluded = Boolean(nextAnchor);
+            // Live message count BEFORE the new user turn lands — the
+            // scheduler will see at most this many + 1 (the current
+            // typed question) on this turn, before its own trim.
+            const liveMessages = (quickSendAgent.conversations?.full?.messages || [])
+              .filter((m) => m && !m.quickSendArchivedAt);
+            liveMessagesBeforeDispatch = liveMessages.length;
+
+            activeThreadEntry = target;
+          });
+        } catch (err) {
+          if (err instanceof QuickSendAgentBusyError) {
+            return res.status(409).json({
+              ok: false,
+              error: 'The Quick Send agent is finishing a previous reply. Try again shortly.',
+              code: 'AGENT_BUSY',
+              retryAfterMs: 1500,
+              agentId: quickSendAgent.id
+            });
+          }
+          if (err && err.isUnknownThread) {
+            return res.status(HTTP_STATUS.NOT_FOUND).json({
+              ok: false,
+              error: err.message,
+              agentId: quickSendAgent.id
+            });
+          }
+          throw err;
+        }
+
+        // Snapshot the message index BEFORE we send so the side panel
+        // can poll for "everything since".
+        const agentSnapshot = await this.orchestrator.agentPool.getAgent(quickSendAgent.id);
+        const firstMessageIndex = agentSnapshot?.conversations?.full?.messages?.length || 0;
+
+        // Compose the user message. Quick Send is source-grounded
+        // chat: the selection lives on the thread's sourceAnchor and
+        // is injected into the system prompt at dispatch time, NOT
+        // baked into the user turn. The transcript user turn is the
+        // typed question alone (or a placeholder when the user sent
+        // none) so the side panel shows clean dialogue and the model
+        // never sees the same source twice.
+        const composed = composeQuickSendUserMessage({ userMessage: safeUserMessage });
+        const composedBytes = Buffer.byteLength(composed, 'utf8');
+        const transcriptMessageCount = agentSnapshot?.conversations?.full?.messages?.length || 0;
+
+        this.logger.info('[QuickSend] dispatching message', {
+          agentId: quickSendAgent.id,
+          threadId: activeThreadEntry?.id || null,
+          historyMode,
+          selectedTextFingerprint,
+          sourceAnchorIncluded,
+          archivedOnThisTurn: archivedCount,
+          transcriptMessageCount,
+          liveMessagesBeforeDispatch,
+          composedBytes,
+          userTypedQuestion: typeof safeUserMessage === 'string' && safeUserMessage.trim().length > 0
+        });
+
+        const sendResp = await this.orchestrator.processRequest({
+          interface: INTERFACE_TYPES.WEB,
+          sessionId,
+          action: ORCHESTRATOR_ACTIONS.SEND_MESSAGE,
+          payload: {
+            agentId: quickSendAgent.id,
+            message: composed,
+            // chat = one user turn, one assistant reply. agent mode
+            // would kick off the autonomous loop, which is wrong here.
+            mode: 'chat',
+            contextReferences: [],
+            source: {
+              type: 'browser-extension',
+              sourceUrl: safeSourceUrl,
+              pageTitle: safePageTitle
+            }
+          },
+          projectDir
+        });
+
+        if (!sendResp?.success) {
+          return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+            ok: false,
+            error: `Could not send message: ${sendResp?.error || 'unknown error'}`,
+            agentId: quickSendAgent.id
+          });
+        }
+
+        return res.json({
+          ok: true,
+          agentId: quickSendAgent.id,
+          // OnBuzz keeps a single rolling conversation per agent at
+          // agent.conversations.full — there is no per-thread id today.
+          // We surface the well-known key for forward-compat.
+          conversationId: 'full',
+          // Per-thread identity. The side panel persists this in
+          // chrome.storage.local and echoes it on subsequent requests
+          // to keep landing in the same thread, or to deliberately
+          // switch by passing a different id / new_thread: true.
+          threadId: activeThreadEntry?.id || null,
+          threadTitle: activeThreadEntry?.title || null,
+          // The side panel filters messages with index >= this so it
+          // only shows the current send/reply pair.
+          firstMessageIndex
+        });
+      } catch (error) {
+        this.logger.error('Quick-send API error', { error: error.message });
+        return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+          ok: false,
+          error: error.message
+        });
+      }
+    });
+
+    // Poll endpoint for the side panel. Returns messages with index >=
+    // `since`. Token-gated like the send endpoint.
+    this.app.get('/api/chat/quick-send/messages', async (req, res) => {
+      try {
+        const presented = req.get('X-OnBuzz-Token');
+        const ok = await verifyExtensionToken(presented);
+        if (!ok) {
+          return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+            ok: false,
+            error: 'Invalid or missing X-OnBuzz-Token header'
+          });
+        }
+        const agentId = req.query.agentId;
+        const since = Math.max(0, parseInt(req.query.since, 10) || 0);
+        if (typeof agentId !== 'string' || agentId.length === 0) {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            ok: false,
+            error: 'Query parameter "agentId" is required'
+          });
+        }
+        const agent = await this.orchestrator.agentPool.getAgent(agentId);
+        if (!agent || agent.name !== QUICK_SEND_AGENT_NAME) {
+          // We refuse to expose arbitrary agents via this endpoint;
+          // it's intended specifically for the Quick Send flow.
+          return res.status(HTTP_STATUS.NOT_FOUND).json({
+            ok: false,
+            error: 'Quick Send agent not found'
+          });
+        }
+
+        // Optional threadId: if absent or equal to the active thread,
+        // read live from agent.conversations.full (so the side panel
+        // can poll for the in-flight reply). For an inactive thread,
+        // return its sidecar snapshot — inactive threads can't be
+        // receiving new messages by construction.
+        const threadIdQuery = typeof req.query.threadId === 'string' && req.query.threadId.length > 0
+          ? req.query.threadId
+          : null;
+        const activeThreadId = agent.metadata?.activeThreadId || null;
+        const wantsInactive = threadIdQuery && activeThreadId && threadIdQuery !== activeThreadId;
+
+        let all;
+        // Source anchor surfaced separately from the message array so
+        // the side panel can render the highlighted source as a header/
+        // chip rather than as an embedded user turn. The transcript
+        // itself is just typed questions + replies.
+        let sourceAnchor = null;
+        if (wantsInactive) {
+          const stateDir = this.orchestrator.stateManager.getStateDir(process.cwd());
+          const inactive = await readQuickSendThreadMessages({
+            stateDir,
+            agentId,
+            threadId: threadIdQuery
+          });
+          if (inactive === null) {
+            return res.status(HTTP_STATUS.NOT_FOUND).json({
+              ok: false,
+              error: 'Unknown thread'
+            });
+          }
+          all = inactive;
+          // For an inactive thread the anchor lives on the index entry.
+          // We pull it via the existing list helper to avoid duplicating
+          // index-loading code in this handler.
+          const list = await listQuickSendThreads({ stateDir, agentId });
+          const entry = list.threads.find((t) => t.id === threadIdQuery);
+          sourceAnchor = entry?.sourceAnchor || null;
+        } else {
+          all = agent.conversations?.full?.messages || [];
+          sourceAnchor = agent.metadata?.activeSourceAnchor || null;
+        }
+        const slice = all.slice(since).map((m, i) => ({
+          index: since + i,
+          role: m.role,
+          content: typeof m.content === 'string' ? m.content : (m.content?.text || ''),
+          timestamp: m.timestamp || null,
+          // Surface tool-result / system-error metadata so the side
+          // panel can tell the difference between "agent is still
+          // thinking" and "agent reported an error in a user-role
+          // message" (the AI-service failure case looks like the
+          // latter — see msg.type === 'consolidated-input' with an
+          // [system-error] prefix).
+          type: m.type || null
+        }));
+
+        // Detect the failure mode the side panel was timing out on:
+        // the agent gets stuck producing only user-role messages
+        // because every AI call errors out. Look at the most recent
+        // user message added AFTER `since`; if it's a tool-result /
+        // system-error consolidation, the agent is unhealthy.
+        const newSlice = all.slice(since);
+        const latestErrorMessage = (() => {
+          for (let i = newSlice.length - 1; i >= 0; i--) {
+            const m = newSlice[i];
+            const text = typeof m.content === 'string' ? m.content : '';
+            if (m.role === 'user' && /\[system-error\]|AI service error/i.test(text)) {
+              return text.split('\n').find((l) => /\[system-error\]|AI service error/i.test(l))
+                || 'Agent reported an error';
+            }
+          }
+          return null;
+        })();
+
+        const isPaused = agent.status === 'paused' || agent.status === 'suspended';
+
+        return res.json({
+          ok: true,
+          agentId,
+          // Echo the resolved thread the client is reading from. For
+          // backward-compat callers (no threadId query), this is the
+          // currently active thread, which is what they were getting
+          // implicitly before.
+          threadId: threadIdQuery || activeThreadId,
+          isActiveThread: !wantsInactive,
+          total: all.length,
+          messages: slice,
+          // The side panel reads these to fail fast instead of
+          // polling for the full 60s. agentStatus is the raw status;
+          // unhealthy is a stronger "stop and show an error" flag.
+          // For an inactive thread we don't expose busy/error state —
+          // inactive threads are static snapshots.
+          agentStatus: wantsInactive ? null : (agent.status || null),
+          currentModel: agent.currentModel || null,
+          unhealthy: wantsInactive ? false : Boolean(isPaused || latestErrorMessage),
+          errorHint: wantsInactive ? null : latestErrorMessage,
+          // The thread's source anchor — page text the user
+          // highlighted plus URL/title. Exposed alongside messages so
+          // the side panel can render the source separately from chat
+          // turns; the transcript itself no longer carries it.
+          sourceAnchor
+        });
+      } catch (error) {
+        this.logger.error('Quick-send poll API error', { error: error.message });
+        return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+          ok: false,
+          error: error.message
+        });
+      }
+    });
+
+    // List Quick Send threads for the side panel history view. Returns
+    // { activeThreadId, threads: [...] } sorted by lastActivity desc.
+    // Token-gated like the other extension endpoints.
+    this.app.get('/api/chat/quick-send/threads', async (req, res) => {
+      try {
+        const presented = req.get('X-OnBuzz-Token');
+        const ok = await verifyExtensionToken(presented);
+        if (!ok) {
+          return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+            ok: false,
+            error: 'Invalid or missing X-OnBuzz-Token header'
+          });
+        }
+        const agentId = req.query.agentId;
+        if (typeof agentId !== 'string' || agentId.length === 0) {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            ok: false,
+            error: 'Query parameter "agentId" is required'
+          });
+        }
+        const agent = await this.orchestrator.agentPool.getAgent(agentId);
+        if (!agent || agent.name !== QUICK_SEND_AGENT_NAME) {
+          return res.status(HTTP_STATUS.NOT_FOUND).json({
+            ok: false,
+            error: 'Quick Send agent not found'
+          });
+        }
+        const stateDir = this.orchestrator.stateManager.getStateDir(process.cwd());
+        const { activeThreadId, threads } = await listQuickSendThreads({
+          stateDir,
+          agentId
+        });
+        return res.json({
+          ok: true,
+          agentId,
+          activeThreadId,
+          threads
+        });
+      } catch (error) {
+        this.logger.error('Quick-send threads API error', { error: error.message });
+        return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+          ok: false,
+          error: error.message
+        });
+      }
+    });
+
     // File operations
     this.app.get('/api/files', async (req, res) => {
       try {
@@ -5188,15 +5881,30 @@ class WebServer {
    * @private
    */
   broadcastToSession(sessionId, message) {
+    // The browser extension talks to the server over REST polling and
+    // never opens a WebSocket — see QUICK_SEND_SESSION_ID at the top
+    // of this file. Sessions in the extension namespace therefore have
+    // zero connections BY DESIGN, and broadcasting to them is a no-op.
+    //
+    // Without this early return, every assistant reply produced for a
+    // quick-send would log a "No connections for session" warning and
+    // then fall back to fanning the message out to every WS connection
+    // in the system — including the OnBuzz web UI watching unrelated
+    // agents. Returning here keeps the WS layer clean and silent for
+    // the extension's polling-only flow.
+    if (typeof sessionId === 'string' && sessionId.startsWith(EXTENSION_SESSION_PREFIX)) {
+      return;
+    }
+
     const sessionConnections = Array.from(this.connections.values())
       .filter(conn => conn.sessionId === sessionId);
-    
+
     // If no connections found for this session, try broadcasting to all connections
     // This handles cases where session IDs might be mismatched
     let allConnections = [];
     if (sessionConnections.length === 0) {
       allConnections = Array.from(this.connections.values());
-      
+
       this.logger?.warn('🔄 No connections for session, trying all connections:', {
         targetSessionId: sessionId,
         totalConnections: this.connections.size,

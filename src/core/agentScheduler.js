@@ -36,6 +36,11 @@ import {
   getActiveAgents,
   shouldSkipIteration
 } from '../services/agentActivityService.js';
+import {
+  shouldApplyQuickSendPolicy,
+  trimMessagesForModel as trimQuickSendMessagesForModel,
+  buildSourceAnchorBlock as buildQuickSendSourceAnchorBlock
+} from '../services/quickSendHistoryPolicy.js';
 
 class AgentScheduler {
   /**
@@ -1896,7 +1901,34 @@ class AgentScheduler {
       }
 
       // After compaction, retrieve messages from AgentPool (will use compacted if available)
-      const messagesToSend = await this.agentPool.getMessagesForAI(agentId, targetModel);
+      let messagesToSend = await this.agentPool.getMessagesForAI(agentId, targetModel);
+
+      // Quick Send: drop turns archived by a prior selection and apply
+      // a small sliding window over what remains. The transcript array
+      // itself is untouched so the side panel still shows the full
+      // history; only the model's view is bounded. The source anchor
+      // gets injected into the system prompt further down — it must
+      // NOT also live in a user-message body, or the model sees the
+      // same selection twice. See services/quickSendHistoryPolicy.js.
+      const quickSendActive = shouldApplyQuickSendPolicy(agent);
+      let quickSendTrimStats = null;
+      if (quickSendActive) {
+        const transcriptCount = messagesToSend.length;
+        const beforeTrim = messagesToSend.length;
+        messagesToSend = trimQuickSendMessagesForModel(messagesToSend);
+        const archivedExcluded = transcriptCount - messagesToSend.length;
+        quickSendTrimStats = {
+          transcriptMessageCount: transcriptCount,
+          modelPayloadMessageCount: messagesToSend.length,
+          excludedFromPayload: Math.max(0, archivedExcluded)
+        };
+        if (beforeTrim !== messagesToSend.length) {
+          this.logger.info('[QuickSend] trimmed history for model call', {
+            agentId,
+            ...quickSendTrimStats
+          });
+        }
+      }
 
       // Inject TaskManager instructions for AGENT mode
       let enhancedSystemPrompt = agent.systemPrompt;
@@ -2027,6 +2059,42 @@ class AgentScheduler {
           error: error.message
         });
         // Continue without flow context if service fails
+      }
+
+      // Quick Send: inject the thread's source anchor (highlighted
+      // page text + URL/title) into the system prompt. This is the
+      // source-grounded-chat design — the selection is structural
+      // context, not a chat turn, so it appears ONCE per model call
+      // and never duplicates as the conversation grows. Mirrored to
+      // agent.metadata.activeSourceAnchor by the Quick Send endpoint
+      // and by quickSendThreadStore.swapToThread.
+      let quickSendAnchorIncluded = false;
+      if (quickSendActive) {
+        const anchorBlock = buildQuickSendSourceAnchorBlock(agent.metadata?.activeSourceAnchor);
+        if (anchorBlock) {
+          enhancedSystemPrompt = (enhancedSystemPrompt || '') + '\n' + anchorBlock;
+          quickSendAnchorIncluded = true;
+        }
+        // Single per-turn telemetry record. Captures the four numbers
+        // the architecture spec asks for: transcript size, model
+        // payload size (count + bytes), what got excluded, and whether
+        // the anchor reached the system prompt. Bytes are summed from
+        // string content only — non-string content (rare on Quick
+        // Send) is skipped rather than serialized.
+        const payloadBytes = messagesToSend.reduce((sum, m) => {
+          const c = typeof m.content === 'string' ? m.content : '';
+          return sum + Buffer.byteLength(c, 'utf8');
+        }, 0) + Buffer.byteLength(enhancedSystemPrompt || '', 'utf8');
+        this.logger.info('[QuickSend] sending to model', {
+          agentId,
+          targetModel,
+          transcriptMessageCount: quickSendTrimStats?.transcriptMessageCount ?? messagesToSend.length,
+          modelPayloadMessageCount: messagesToSend.length,
+          modelPayloadBytes: payloadBytes,
+          excludedFromPayload: quickSendTrimStats?.excludedFromPayload ?? 0,
+          sourceAnchorIncluded: quickSendAnchorIncluded,
+          systemPromptBytes: Buffer.byteLength(enhancedSystemPrompt || '', 'utf8')
+        });
       }
 
       // Check if streaming is enabled - consider both agent config and user message preference

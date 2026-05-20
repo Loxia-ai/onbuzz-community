@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OnBuzz Quick Send</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Nunito:wght@700;800;900&family=Heebo:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-tile" aria-hidden="true">
+      <img src="assets/mascot.webp" alt="" />
+    </div>
+    <div class="brand-stack">
+      <div class="wordmark-light">
+        <img src="assets/wordmark.webp" alt="OnBuzz" />
+      </div>
+      <div class="wordmark-dark" aria-hidden="true">
+        <span>On<span class="accent">Buzz</span></span>
+      </div>
+      <div id="appHeaderSub" class="app-header-sub">No selection yet</div>
+    </div>
+    <button id="historyBtn" class="icon-btn" type="button" title="Conversation history (coming soon)" aria-label="History" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    </button>
+    <button id="settingsBtn" class="icon-btn" type="button" title="Open extension options" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.6a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9.2A1.7 1.7 0 0 0 10.23 2.84V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9.2a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg>
+    </button>
+  </header>
+
+  <div class="body-region">
+    <section id="selectionCard" class="selection-card hidden" aria-live="polite">
+      <div class="selection-row">
+        <div class="selection-doc-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+        </div>
+        <div class="selection-meta">
+          <div id="pageTitle" class="page-title" title=""></div>
+          <div class="source-url-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
+            <a id="sourceUrl" class="source-url" target="_blank" rel="noopener noreferrer"></a>
+          </div>
+        </div>
+        <button id="clearSelection" class="text-btn" type="button" title="Clear selection" aria-label="Clear selection">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div id="selectedText" class="selection-quote"></div>
+    </section>
+
+    <section id="actionChips" class="action-chips-card hidden" aria-label="Quick actions for this selection">
+      <div class="action-chips-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.8L18 9.4l-4.4 1.6L12 16l-1.6-5L6 9.4l4.4-1.6L12 3z"/><path d="M19 14l.7 2 2 .7-2 .7L19 19l-.7-1.6-2-.7 2-.7L19 14z"/></svg>
+        Quick actions for this selection
+      </div>
+      <div class="action-chips-row" id="actionChipsRow">
+        <button class="action-chip" type="button" data-prompt="Summarize the selection in 2 short bullet points.">Summarize</button>
+        <button class="action-chip" type="button" data-prompt="Translate the selection to English.">Translate → EN</button>
+        <button class="action-chip" type="button" data-prompt="Pull the key points out of the selection as a short list.">Key points</button>
+        <button class="action-chip" type="button" data-prompt="Quick tone check — what's the register and intent of the selection?">Tone check</button>
+      </div>
+    </section>
+
+    <section id="emptyState" class="empty-state" aria-live="polite">
+      <div class="mascot-glow" aria-hidden="true">
+        <img src="assets/mascot.webp" alt="" />
+      </div>
+      <div class="empty-title">Hi, I'm OnBuzz.</div>
+      <div class="empty-body">
+        Highlight text on any page and send it here — I'll summarize, translate, or answer questions about it.
+      </div>
+    </section>
+
+    <section id="conversation" class="conversation hidden" aria-live="polite"></section>
+
+    <section id="errorBanner" class="banner hidden" role="alert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+      <div style="flex:1; min-width:0;">
+        <div id="errorTitle" class="banner-title">Something went wrong</div>
+        <div id="errorBody" class="banner-body"></div>
+      </div>
+    </section>
+  </div>
+
+  <form id="composer" class="composer" autocomplete="off">
+    <div id="selectionPill" class="selection-pill hidden">Selection attached</div>
+    <div class="composer-shell">
+      <textarea
+        id="userMessage"
+        class="composer-input"
+        rows="2"
+        placeholder="Ask about the selection… (Enter to send, Shift+Enter for newline)"
+        maxlength="8000"
+      ></textarea>
+    </div>
+    <div class="composer-actions">
+      <button
+        id="micBtn"
+        class="small-icon-btn"
+        type="button"
+        title="Voice input"
+        aria-label="Voice input"
+        aria-pressed="false"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        <span class="mic-pulse" aria-hidden="true"></span>
+      </button>
+      <div class="lang-wrap">
+        <button
+          id="langBtn"
+          class="small-icon-btn"
+          type="button"
+          title="Reply language"
+          aria-label="Reply language"
+          aria-haspopup="listbox"
+          aria-expanded="false"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+          <span id="langBadge" class="lang-badge hidden"></span>
+        </button>
+        <div id="langPopover" class="lang-popover hidden" role="listbox" aria-label="Reply language">
+          <button class="lang-option" type="button" role="option" data-lang="">Auto-detect</button>
+          <button class="lang-option" type="button" role="option" data-lang="en">English</button>
+          <button class="lang-option" type="button" role="option" data-lang="he">עברית (Hebrew)</button>
+          <button class="lang-option" type="button" role="option" data-lang="es">Español</button>
+          <button class="lang-option" type="button" role="option" data-lang="fr">Français</button>
+          <button class="lang-option" type="button" role="option" data-lang="ar">العربية (Arabic)</button>
+        </div>
+      </div>
+      <div id="sendHint" class="hint"></div>
+      <button id="sendBtn" class="primary-btn" type="submit">
+        Send
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+      </button>
+    </div>
+  </form>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
