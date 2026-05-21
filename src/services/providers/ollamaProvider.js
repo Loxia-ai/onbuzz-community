@@ -62,33 +62,48 @@ export default class OllamaProvider extends BaseProvider {
 
   async sendMessageStream(request, handlers = {}) {
     const messages = (request.messages || []).map(m => ({ role: m.role, content: m.content }));
+    // Unlike the non-streaming path, ollamaService.sendMessageStream resolves
+    // to a flat object `{ content, model, tokenUsage, finishReason, toolCalls? }`
+    // — there is NO OpenAI-style `choices[]` wrapper here. Reading
+    // raw.choices[0] would silently strand the streamed content as '', which
+    // then makes the scheduler's empty-message guard drop the assistant turn
+    // and the Quick Send poll loop time out after 60s.
     const raw = await this._service.sendMessageStream(request.model, messages, {
       systemPrompt:     request.systemPrompt,
       temperature:      request.options?.temperature,
       maxTokens:        request.options?.max_tokens,
       onChunk:          handlers.onChunk,
       onReasoningChunk: handlers.onReasoningChunk,
-      // Note: ollamaService delivers a final response object as the resolved value;
-      // we translate it after the await rather than via onDone (its onDone signature
-      // differs across versions).
     });
-    const choice = raw.choices?.[0] || {};
-    const msg = choice.message || {};
+    const rawToolCalls = Array.isArray(raw.toolCalls)
+      ? raw.toolCalls
+      : (Array.isArray(raw.tool_calls) ? raw.tool_calls : null);
     const final = {
-      content:         msg.content || '',
+      content:         typeof raw.content === 'string' ? raw.content : '',
       reasoning:       '',
       reasoningTokens: null,
-      usage:           raw.usage || null,
+      usage:           raw.tokenUsage || raw.usage || null,
       model:           raw.model || request.model,
-      finishReason:    choice.finish_reason || 'stop',
-      toolCalls:       Array.isArray(msg.tool_calls) ? msg.tool_calls.map(tc => ({
-        id:        tc.id || `call_${tc.function?.name || ''}`,
+      finishReason:    raw.finishReason || 'stop',
+      toolCalls:       rawToolCalls ? rawToolCalls.map(tc => ({
+        id:        tc.id || `call_${tc.function?.name || tc.name || ''}`,
         name:      tc.function?.name || tc.name,
         arguments: typeof tc.function?.arguments === 'string'
                      ? tc.function.arguments
                      : JSON.stringify(tc.function?.arguments || tc.arguments || {}),
       })) : undefined,
     };
+    // Low-noise diagnostic: zero-length content on a "successful" stream is
+    // the exact failure mode that caused the Quick Send timeout regression.
+    // Surfacing it once per request makes a future shape drift visible
+    // before it manifests as a UI-level hang.
+    if (!final.content || final.content.length === 0) {
+      this.logger?.warn?.('[Ollama] streaming completed with empty content', {
+        model:        final.model,
+        finishReason: final.finishReason,
+        hasToolCalls: Boolean(final.toolCalls && final.toolCalls.length),
+      });
+    }
     handlers.onDone?.(final);
     return final;
   }
