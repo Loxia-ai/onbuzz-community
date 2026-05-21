@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Loxia Autopilot One - CLI Entry Point
+ * OnBuzz Community - CLI Entry Point
  *
  * Commands:
- *   loxia web            - Start server (serves Web UI) + open browser
- *   loxia serve          - Start server only (no UI)
- *   loxia terminal       - Start Terminal UI only (server must be running)
- *   loxia plus-web       - Alias for 'web'
- *   loxia plus-terminal  - Start server (background) + Terminal UI (foreground)
- *   loxia trigger-schedule <id> - Trigger a scheduled task (wakes server if needed)
+ *   onbuzz web            - Start server (serves Web UI) + open browser
+ *   onbuzz serve          - Start server only (no UI)
+ *   onbuzz terminal       - Start Terminal UI only (server must be running)
+ *   onbuzz plus-web       - Alias for 'web'
+ *   onbuzz plus-terminal  - Start server (background) + Terminal UI (foreground)
+ *   onbuzz trigger-schedule <id> - Trigger a scheduled task (wakes server if needed)
  */
 
 import { fileURLToPath } from 'url';
@@ -339,7 +339,7 @@ const commands = {
 
   // 'serve': Start server only (no UI)
   'serve': async () => {
-    console.log('Starting Loxia server...\n');
+    console.log(`Starting ${BRAND.productName} server...\n`);
 
     const serverProcess = startServer(false);
 
@@ -357,11 +357,11 @@ const commands = {
       const serverUrl = `http://${backend.host}:${backend.port}`;
       console.log(`\n✓ Server running at ${serverUrl}`);
       console.log(`\n  Web UI:       ${serverUrl}`);
-      console.log(`  Terminal UI:  loxia terminal`);
+      console.log(`  Terminal UI:  ${BRAND.binName} terminal`);
       console.log(`  API Health:   ${serverUrl}/api/health\n`);
     } else {
       console.log(`\nServer started but may still be initializing.`);
-      console.log(`Run 'loxia terminal' to connect when ready.`);
+      console.log(`Run '${BRAND.binName} terminal' to connect when ready.`);
     }
 
     // Forward signals for graceful shutdown
@@ -386,9 +386,9 @@ const commands = {
     if (!backend) {
       console.error(`\nNo running server found in the port registry.`);
       console.error('\nPlease start the server first:');
-      console.error('  loxia web            # Start server + Web UI');
-      console.error('  loxia serve          # Start server only');
-      console.error('  loxia plus-terminal  # Start server + Terminal UI\n');
+      console.error(`  ${BRAND.binName} web            # Start server + Web UI`);
+      console.error(`  ${BRAND.binName} serve          # Start server only`);
+      console.error(`  ${BRAND.binName} plus-terminal  # Start server + Terminal UI\n`);
       process.exit(1);
     }
 
@@ -414,7 +414,7 @@ const commands = {
 
   // 'plus-terminal': Start server (silent background) + Terminal UI (foreground)
   'plus-terminal': async () => {
-    console.log('Starting Loxia server in background...');
+    console.log(`Starting ${BRAND.productName} server in background...`);
 
     // Start server silently in background
     const serverProcess = startServer(true);
@@ -464,7 +464,7 @@ const commands = {
   'trigger-schedule': async () => {
     const scheduleId = args[1];
     if (!scheduleId) {
-      console.error('Usage: loxia trigger-schedule <schedule-id>');
+      console.error(`Usage: ${BRAND.binName} trigger-schedule <schedule-id>`);
       process.exit(1);
     }
 
@@ -479,7 +479,7 @@ const commands = {
 
     if (!backend) {
       // No running server — wake one up silently
-      console.log('No running server found. Starting Loxia in background...');
+      console.log(`No running server found. Starting ${BRAND.productName} in background...`);
       startServer(true);
       weStartedServer = true;
 
@@ -565,6 +565,6 @@ if (commands[command]) {
   });
 } else {
   console.error(`Unknown command: ${command}`);
-  console.error('Run "loxia --help" for usage information.');
+  console.error(`Run "${BRAND.binName} --help" for usage information.`);
   process.exit(1);
 }

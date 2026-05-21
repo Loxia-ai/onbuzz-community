@@ -1,5 +1,5 @@
 /**
- * CLI Interface - Command Line Interface for Loxia AI Agents System
+ * CLI Interface - Command Line Interface for OnBuzz Community
  * 
  * Purpose:
  * - Provide command-line interaction with the orchestrator
@@ -538,7 +538,7 @@ class CLIInterface {
    */
   getPrompt() {
     const agentName = this.currentAgent ? this.currentAgent.name : 'no-agent';
-    return `loxia:${agentName}> `;
+    return `onbuzz:${agentName}> `;
   }
 
   /**

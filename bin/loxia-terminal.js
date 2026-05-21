@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * Loxia Terminal UI Launcher
+ * OnBuzz Terminal UI Launcher
  * Command-line interface for the terminal UI
  */
-
-import { startTerminalUI } from '../src/interfaces/terminal/index.js';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -24,10 +22,10 @@ for (let i = 0; i < args.length; i++) {
     options.port = parseInt(args[++i], 10);
   } else if (arg === '--help') {
     console.log(`
-Loxia Terminal UI
+OnBuzz Terminal UI
 
 Usage:
-  loxia-terminal [options]
+  onbuzz terminal [options]
 
 Options:
   --host, -h <host>    Backend host (default: localhost)
@@ -39,9 +37,9 @@ Environment Variables:
   LOXIA_PORT          Backend port
 
 Examples:
-  loxia-terminal
-  loxia-terminal --host 192.168.1.100 --port 3000
-  LOXIA_HOST=api.example.com LOXIA_PORT=443 loxia-terminal
+  onbuzz terminal
+  onbuzz terminal --host 192.168.1.100 --port 3000
+  LOXIA_HOST=api.example.com LOXIA_PORT=443 onbuzz terminal
 `);
     process.exit(0);
   }
@@ -74,10 +72,11 @@ if (!process.stdin.isTTY) {
 }
 
 // Start the Terminal UI
-console.log(`Starting Loxia Terminal UI...`);
+console.log(`Starting OnBuzz Terminal UI...`);
 console.log(`Connecting to: ${options.host}:${options.port}`);
 console.log(`Press Ctrl+C to exit\n`);
 
+const { startTerminalUI } = await import('../src/interfaces/terminal/index.js');
 const instance = startTerminalUI(options);
 
 // Wait for exit
