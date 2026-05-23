@@ -181,6 +181,7 @@ export const OPENAI_FUNCTION_SCHEMAS = [
     parameters: {
       type: 'object',
       properties: {
+        dryRun:     { type: 'boolean', description: 'Preview changes only; no files are written when true.' },
         files: {
           type: 'array',
           items: {

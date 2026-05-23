@@ -1,5 +1,5 @@
 import { jest, describe, test, expect, beforeEach } from '@jest/globals';
-import { createMockLogger, createMockConfig } from '../../__test-utils__/mockFactories.js';
+import { createMockLogger } from '../../__test-utils__/mockFactories.js';
 
 // Mock fs/promises
 const fsMock = {
@@ -66,6 +66,13 @@ describe('FileContentReplaceTool', () => {
       const result = tool.parseParameters(xml);
       expect(result.files).toHaveLength(1);
       expect(result.files[0].path).toBe('test.js');
+      expect(result.dryRun).toBe(false);
+    });
+
+    test('should parse XML dry-run flag', () => {
+      const xml = `<dry-run>true</dry-run><file path="test.js"><replace><old-content>old</old-content><new-content>new</new-content></replace></file>`;
+      const result = tool.parseParameters(xml);
+      expect(result.dryRun).toBe(true);
     });
 
     test('should throw on invalid JSON', () => {
@@ -79,6 +86,15 @@ describe('FileContentReplaceTool', () => {
         files: [{ path: 'a.js', replacements: [{ oldContent: 'x', newContent: 'y' }] }]
       }));
       expect(result.files[0].replacements[0].mode).toBe('trim');
+      expect(result.dryRun).toBe(false);
+    });
+
+    test('should preserve dryRun true', () => {
+      const result = tool.parseJSON(JSON.stringify({
+        dryRun: true,
+        files: [{ path: 'a.js', replacements: [{ oldContent: 'x', newContent: 'y' }] }]
+      }));
+      expect(result.dryRun).toBe(true);
     });
 
     test('should throw when files is not an array', () => {
@@ -235,6 +251,21 @@ describe('FileContentReplaceTool', () => {
       });
       expect(result.valid).toBe(true);
     });
+
+    test('should reject non-boolean dryRun', () => {
+      expect(() => tool.customValidateParameters({
+        dryRun: 'true',
+        files: [{ path: 'a.js', replacements: [{ oldContent: 'a', newContent: 'b' }] }]
+      })).toThrow('dryRun');
+    });
+
+    test('should accept true dryRun', () => {
+      const result = tool.customValidateParameters({
+        dryRun: true,
+        files: [{ path: 'a.js', replacements: [{ oldContent: 'a', newContent: 'b' }] }]
+      });
+      expect(result.valid).toBe(true);
+    });
   });
 
   describe('isPathAccessible', () => {
@@ -298,6 +329,48 @@ describe('FileContentReplaceTool', () => {
       }, { projectDir: '/project' });
 
       expect(result.statistics.errors).toBe(1);
+    });
+
+    test('should preview changes when dryRun is true', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      fsMock.stat.mockResolvedValue({ size: 100 });
+      fsMock.readFile.mockResolvedValue('const x = "old";\n');
+
+      const result = await tool.execute({
+        dryRun: true,
+        files: [{
+          path: 'test.js',
+          replacements: [{ oldContent: 'old', newContent: 'new', mode: 'none' }]
+        }]
+      }, { projectDir: '/project' });
+
+      expect(result.success).toBe(true);
+      expect(result.results[0].dryRun).toBe(true);
+      expect(fsMock.writeFile).not.toHaveBeenCalled();
+      expect(result.results[0].diff).toContain('- const x = "old";');
+      expect(result.results[0].diff).toContain('+ const x = "new";');
+      expect(result.statistics.backupsCreated).toBe(0);
+      expect(result.statistics.totalReplacements).toBe(1);
+    });
+
+    test('should report no replacements without writing when dryRun content is not found', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      fsMock.stat.mockResolvedValue({ size: 100 });
+      fsMock.readFile.mockResolvedValue('const x = "value";\n');
+
+      const result = await tool.execute({
+        dryRun: true,
+        files: [{
+          path: 'test.js',
+          replacements: [{ oldContent: 'missing', newContent: 'new', mode: 'none' }]
+        }]
+      }, { projectDir: '/project' });
+
+      expect(result.success).toBe(true);
+      expect(result.results[0].dryRun).toBe(true);
+      expect(result.results[0].replacementsMade).toBe(0);
+      expect(fsMock.writeFile).not.toHaveBeenCalled();
+      expect(result.statistics.totalReplacements).toBe(0);
     });
   });
 
