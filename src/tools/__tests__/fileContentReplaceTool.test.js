@@ -352,6 +352,26 @@ describe('FileContentReplaceTool', () => {
       expect(result.statistics.backupsCreated).toBe(0);
       expect(result.statistics.totalReplacements).toBe(1);
     });
+
+    test('should report no replacements without writing when dryRun content is not found', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      fsMock.stat.mockResolvedValue({ size: 100 });
+      fsMock.readFile.mockResolvedValue('const x = "value";\n');
+
+      const result = await tool.execute({
+        dryRun: true,
+        files: [{
+          path: 'test.js',
+          replacements: [{ oldContent: 'missing', newContent: 'new', mode: 'none' }]
+        }]
+      }, { projectDir: '/project' });
+
+      expect(result.success).toBe(true);
+      expect(result.results[0].dryRun).toBe(true);
+      expect(result.results[0].replacementsMade).toBe(0);
+      expect(fsMock.writeFile).not.toHaveBeenCalled();
+      expect(result.statistics.totalReplacements).toBe(0);
+    });
   });
 
   describe('cleanup', () => {
