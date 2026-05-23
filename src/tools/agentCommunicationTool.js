@@ -337,9 +337,9 @@ LIMITS:
         subject,
         message,
         attachments,
-        priority = 'normal',
-        'requires-reply': requiresReply = true
+        priority = 'normal'
       } = parameters;
+      const requiresReply = parameters['requires-reply'] ?? parameters.requiresReply ?? true;
       
       // Validate required fields
       if (!subject || !message) {
@@ -542,12 +542,12 @@ LIMITS:
   async replyToMessage(senderAgentId, parameters, context) {
     try {
       const {
-        'message-id': originalMessageId,
         message,
-        'cc-recipients': ccRecipients,
-        attachments,
-        'mark-resolved': markResolved = false
+        attachments
       } = parameters;
+      const originalMessageId = parameters['message-id'] ?? parameters.messageId;
+      const ccRecipients = parameters['cc-recipients'] ?? parameters.ccRecipients;
+      const markResolved = parameters['mark-resolved'] ?? parameters.markResolved ?? false;
       
       // Validate required fields
       if (!originalMessageId || !message) {
@@ -702,10 +702,8 @@ LIMITS:
    */
   async getUnrepliedMessages(agentId, parameters, context) {
     try {
-      const {
-        'include-low-priority': includeLowPriority = false,
-        'max-age-hours': maxAgeHours = 24
-      } = parameters;
+      const includeLowPriority = parameters['include-low-priority'] ?? parameters.includeLowPriority ?? false;
+      const maxAgeHours = parameters['max-age-hours'] ?? parameters.maxAgeHours ?? 24;
       
       const inbox = this.agentInboxes.get(agentId) || new Set();
       const unrepliedMessages = [];
@@ -773,10 +771,8 @@ LIMITS:
    */
   async markConversationEnded(agentId, parameters, context) {
     try {
-      const {
-        'conversation-id': conversationId,
-        reason = 'Conversation ended by agent'
-      } = parameters;
+      const conversationId = parameters['conversation-id'] ?? parameters.conversationId;
+      const { reason = 'Conversation ended by agent' } = parameters;
       
       if (!conversationId) {
         throw new Error('Conversation ID is required');
