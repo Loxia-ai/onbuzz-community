@@ -331,6 +331,31 @@ describe('AgentCommunicationTool', () => {
       expect(replyResult.depth).toBe(1);
     });
 
+    test('accepts documented ccRecipients and markResolved camelCase fields', async () => {
+      const { tool, context } = createTestSetup();
+      const sendResult = await tool.execute({
+        action: 'send-message',
+        recipient: 'agent-recipient',
+        subject: 'Question',
+        message: 'What is the status?'
+      }, context);
+
+      const replyResult = await tool.execute({
+        action: 'reply-to-message',
+        messageId: sendResult.messageId,
+        message: 'Done',
+        ccRecipients: ['agent-observer'],
+        markResolved: true
+      }, { agentId: 'agent-recipient', agentPool: context.agentPool });
+
+      expect(replyResult.success).toBe(true);
+      expect(replyResult.recipients).toEqual(
+        expect.arrayContaining(['agent-sender', 'agent-observer'])
+      );
+      expect(replyResult.conversationStatus).toBe('resolved');
+      expect(tool.messages.get(replyResult.messageId).requiresReply).toBe(false);
+    });
+
     test('errors when original message ID missing', async () => {
       const { tool, context } = createTestSetup();
       const result = await tool.execute({
@@ -441,6 +466,34 @@ describe('AgentCommunicationTool', () => {
       );
       expect(result.success).toBe(true);
       expect(result.messages).toHaveLength(0);
+    });
+
+    test('accepts documented includeLowPriority and maxAgeHours camelCase fields', async () => {
+      const { tool, context } = createTestSetup();
+      const sendResult = await tool.execute({
+        action: 'send-message',
+        recipient: 'agent-recipient',
+        subject: 'Old low priority',
+        message: 'Please respond eventually',
+        priority: 'low',
+        requiresReply: true
+      }, context);
+
+      const thirtyHoursAgo = new Date(Date.now() - 30 * 3600000).toISOString();
+      tool.messages.get(sendResult.messageId).timestamp = thirtyHoursAgo;
+
+      const result = await tool.execute(
+        {
+          action: 'get-unreplied-messages',
+          includeLowPriority: true,
+          maxAgeHours: 48
+        },
+        { agentId: 'agent-recipient', agentPool: context.agentPool }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].subject).toBe('Old low priority');
     });
   });
 
