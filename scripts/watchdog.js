@@ -1,28 +1,32 @@
 #!/usr/bin/env node
 /**
- * Watchdog Script - External process for restarting Loxia Autopilot
+ * Watchdog Script - external process for restarting OnBuzz Community
  *
- * This script is spawned as an independent process before the main Loxia
+ * This script is spawned as an independent process before the main OnBuzz
  * process terminates. It waits for the specified delay, then restarts
- * Loxia using the configured command.
+ * OnBuzz using the configured command.
  *
  * Usage:
  *   node watchdog.js [options]
  *
  * Options:
  *   --delay <ms>      Delay before restart in milliseconds (default: 5000)
- *   --command <cmd>   Command to run (default: "loxia web")
+ *   --command <cmd>   Command to run (default: "onbuzz web")
  *   --pid <pid>       Parent PID to wait for (optional)
  *
  * Examples:
- *   node watchdog.js --delay 3000 --command "loxia web"
- *   node watchdog.js --command "npx @loxia-labs/loxia-autopilot-one web"
- *   node watchdog.js --delay 5000 --command "loxia web --port 3000"
+ *   node watchdog.js --delay 3000 --command "onbuzz web"
+ *   node watchdog.js --command "npx onbuzz-community web"
+ *   node watchdog.js --delay 5000 --command "onbuzz web --port 3000"
  */
 
-const { spawn, execSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Log to file for debugging (since stdio might be ignored)
 // Use script directory for reliable location
@@ -46,7 +50,7 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const options = {
     delay: 5000,
-    command: 'loxia web',
+    command: 'onbuzz web',
     pid: null
   };
 
@@ -56,7 +60,7 @@ function parseArgs() {
         options.delay = parseInt(args[++i], 10) || 5000;
         break;
       case '--command':
-        options.command = args[++i] || 'loxia web';
+        options.command = args[++i] || 'onbuzz web';
         break;
       case '--pid':
         options.pid = parseInt(args[++i], 10) || null;
@@ -122,8 +126,7 @@ async function main() {
   log(`[Watchdog] Executing: ${cmd} ${args.join(' ')}`);
 
   // Spawn the new process
-  // Use shell on all platforms for proper resolution of npm global commands (like 'loxia')
-  const isWindows = process.platform === 'win32';
+  // Use shell on all platforms for proper resolution of npm global commands (like 'onbuzz')
 
   const child = spawn(cmd, args, {
     detached: true,
@@ -134,7 +137,7 @@ async function main() {
 
   child.unref();
 
-  log(`[Watchdog] Loxia restarted with PID ${child.pid}`);
+  log(`[Watchdog] OnBuzz restarted with PID ${child.pid}`);
   log(`[Watchdog] Watchdog exiting...`);
 
   // Give the child process a moment to start
