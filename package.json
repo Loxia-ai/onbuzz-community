@@ -45,7 +45,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/loxia-labs/onbuzz-community.git"
+    "url": "https://github.com/Loxia-ai/onbuzz-community.git"
   },
   "files": [
     "bin/",
