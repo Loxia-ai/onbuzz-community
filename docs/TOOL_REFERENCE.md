@@ -157,7 +157,7 @@ Text search across project files with glob and plain path inputs.
 ```
 
 ```json
-{"toolId":"seek","filePaths":["README.md","src/main.js"],"searchTerms":["TODO","FIXME"]}
+{"toolId":"seek","filePaths":["README.md","src/index.js"],"searchTerms":["TODO","FIXME"]}
 ```
 
 ### Output shape
