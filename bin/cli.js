@@ -64,7 +64,7 @@ function _resolveBrand() {
   return {
     binName:     'onbuzz',
     productName: 'OnBuzz Community',
-    docsUrl:     'https://github.com/loxia-labs/onbuzz-community',
+    docsUrl:     'https://github.com/Loxia-ai/onbuzz-community',
     version:     pkg.version || '0.0.0',
   };
 }
