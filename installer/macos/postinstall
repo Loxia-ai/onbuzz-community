@@ -1,31 +1,31 @@
 #!/bin/bash
-# Loxia Autopilot One - macOS Post-installation Script
+# OnBuzz Community - macOS Post-installation Script
 
 set -e
 
-INSTALL_DIR="/usr/local/lib/loxia"
+INSTALL_DIR="/usr/local/lib/onbuzz"
 BIN_DIR="/usr/local/bin"
 
 # Ensure bin directory exists
 mkdir -p "$BIN_DIR"
 
-# Create symlink for the loxia command
-ln -sf "$INSTALL_DIR/loxia" "$BIN_DIR/loxia"
+# Create symlink for the onbuzz command
+ln -sf "$INSTALL_DIR/onbuzz" "$BIN_DIR/onbuzz"
 
 # Make binary executable
-chmod +x "$INSTALL_DIR/loxia"
+chmod +x "$INSTALL_DIR/onbuzz"
 
 # Verify installation
-if [ -x "$BIN_DIR/loxia" ]; then
-    echo "Loxia Autopilot One installed successfully!"
+if [ -x "$BIN_DIR/onbuzz" ]; then
+    echo "OnBuzz Community installed successfully!"
     echo ""
     echo "Available commands:"
-    echo "  loxia web        - Start server and open Web UI"
-    echo "  loxia terminal   - Start Terminal UI"
-    echo "  loxia serve      - Start server only (headless)"
-    echo "  loxia --help     - Show all commands"
+    echo "  onbuzz web        - Start server and open Web UI"
+    echo "  onbuzz terminal   - Start Terminal UI"
+    echo "  onbuzz serve      - Start server only (headless)"
+    echo "  onbuzz --help     - Show all commands"
     echo ""
-    echo "To get started, run: loxia web"
+    echo "To get started, run: onbuzz web"
 else
     echo "Warning: Installation may not be complete. Please check manually."
     exit 1

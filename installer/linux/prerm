@@ -1,15 +1,15 @@
 #!/bin/bash
-# Loxia Autopilot One - Linux Pre-removal Script
+# OnBuzz Community - Linux Pre-removal Script
 
 set -e
 
 BIN_DIR="/usr/bin"
 
 # Remove symlink
-if [ -L "$BIN_DIR/loxia" ]; then
-    rm -f "$BIN_DIR/loxia"
+if [ -L "$BIN_DIR/onbuzz" ]; then
+    rm -f "$BIN_DIR/onbuzz"
 fi
 
-echo "Loxia Autopilot One has been removed."
+echo "OnBuzz Community has been removed."
 
 exit 0

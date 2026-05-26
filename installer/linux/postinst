@@ -1,25 +1,25 @@
 #!/bin/bash
-# Loxia Autopilot One - Linux Post-installation Script
+# OnBuzz Community - Linux Post-installation Script
 
 set -e
 
-INSTALL_DIR="/usr/lib/loxia"
+INSTALL_DIR="/usr/lib/onbuzz"
 BIN_DIR="/usr/bin"
 
-# Create symlink for the loxia command
-ln -sf "$INSTALL_DIR/loxia" "$BIN_DIR/loxia"
+# Create symlink for the onbuzz command
+ln -sf "$INSTALL_DIR/onbuzz" "$BIN_DIR/onbuzz"
 
 # Make binary executable
-chmod +x "$INSTALL_DIR/loxia"
+chmod +x "$INSTALL_DIR/onbuzz"
 
-echo "Loxia Autopilot One installed successfully!"
+echo "OnBuzz Community installed successfully!"
 echo ""
 echo "Available commands:"
-echo "  loxia web        - Start server and open Web UI"
-echo "  loxia terminal   - Start Terminal UI"
-echo "  loxia serve      - Start server only (headless)"
-echo "  loxia --help     - Show all commands"
+echo "  onbuzz web        - Start server and open Web UI"
+echo "  onbuzz terminal   - Start Terminal UI"
+echo "  onbuzz serve      - Start server only (headless)"
+echo "  onbuzz --help     - Show all commands"
 echo ""
-echo "To get started, run: loxia web"
+echo "To get started, run: onbuzz web"
 
 exit 0
