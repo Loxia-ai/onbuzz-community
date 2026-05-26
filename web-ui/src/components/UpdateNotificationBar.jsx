@@ -63,7 +63,7 @@ const UpdateNotificationBar = () => {
       toast.loading('Updating OnBuzz Community...', { id: 'update' });
 
       const result = await api.performUpdate({
-        restartCommand: 'loxia web',
+        restartCommand: 'onbuzz web',
         restartDelay: 5000
       });
 
