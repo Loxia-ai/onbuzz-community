@@ -1,15 +1,15 @@
 #!/bin/bash
-# Loxia Autopilot One - macOS Pre-installation Script
+# OnBuzz Community - macOS Pre-installation Script
 
 set -e
 
-INSTALL_DIR="/usr/local/lib/loxia"
+INSTALL_DIR="/usr/local/lib/onbuzz"
 BIN_DIR="/usr/local/bin"
 
 # Remove existing symlink if present
-if [ -L "$BIN_DIR/loxia" ]; then
-    rm -f "$BIN_DIR/loxia"
-    echo "Removed existing loxia symlink"
+if [ -L "$BIN_DIR/onbuzz" ]; then
+    rm -f "$BIN_DIR/onbuzz"
+    echo "Removed existing onbuzz symlink"
 fi
 
 # Remove old installation if exists

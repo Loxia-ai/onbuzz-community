@@ -1,12 +1,12 @@
-Package: loxia-autopilot
+Package: onbuzz-community
 Version: VERSION_PLACEHOLDER
 Section: devel
 Priority: optional
 Architecture: amd64
 Maintainer: Loxia AI <support@loxia.ai>
 Homepage: https://loxia.ai
-Description: Autonomous AI Agent System for Software Development
- Loxia Autopilot One is a production-ready autonomous AI agent system
+Description: Local-first multi-agent AI system for software development
+ OnBuzz Community is an open-source local-first autonomous AI agent system
  that empowers developers with intelligent coding assistance.
  .
  Features:
@@ -17,6 +17,6 @@ Description: Autonomous AI Agent System for Software Development
   - Task management system
  .
  Commands:
-  - loxia web: Start server and open Web UI
-  - loxia terminal: Start Terminal UI
-  - loxia serve: Start server only (headless)
+  - onbuzz web: Start server and open Web UI
+  - onbuzz terminal: Start Terminal UI
+  - onbuzz serve: Start server only (headless)
