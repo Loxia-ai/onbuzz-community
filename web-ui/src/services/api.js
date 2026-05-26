@@ -439,7 +439,7 @@ class ApiClient {
   /**
    * Trigger system update (installs latest version and restarts)
    * @param {Object} options - Update options
-   * @param {string} options.restartCommand - Command to restart (default: 'loxia web')
+   * @param {string} options.restartCommand - Command to restart (default: 'onbuzz web')
    * @param {number} options.restartDelay - Delay before restart in ms (default: 5000)
    * @returns {Promise<Object>} Update result
    */
@@ -447,7 +447,7 @@ class ApiClient {
     return this.request('/system/update', {
       method: 'POST',
       body: {
-        restartCommand: options.restartCommand || 'loxia web',
+        restartCommand: options.restartCommand || 'onbuzz web',
         restartDelay: options.restartDelay || 5000
       }
     });

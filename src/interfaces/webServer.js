@@ -764,7 +764,7 @@ class WebServer {
         });
       }
 
-      const { restartCommand = 'loxia web', restartDelay = 5000 } = req.body || {};
+      const { restartCommand = 'onbuzz web', restartDelay = 5000 } = req.body || {};
 
       try {
         this.logger.info('Starting system update...');
