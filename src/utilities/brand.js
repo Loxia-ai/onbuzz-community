@@ -50,7 +50,7 @@ export function getBrand() {
     binName:     'onbuzz',
     productName: 'OnBuzz Community',
     shortName:   'OnBuzz',
-    docsUrl:     'https://github.com/loxia-labs/onbuzz-community',
+    docsUrl:     'https://github.com/Loxia-ai/onbuzz-community',
     version:     typeof pkg.version === 'string' ? pkg.version : '0.0.0',
     packageName: typeof pkg.name === 'string' ? pkg.name : 'onbuzz-community',
     isAutopilot: false,
