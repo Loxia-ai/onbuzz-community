@@ -23,6 +23,7 @@ import {
   registerQuickSendRoutes,
   buildQuickSendAgentSeed,
   composeQuickSendMessage,
+  classifyProviderError,
   QUICK_SEND_AGENT_NAME,
   EXTENSION_SESSION_ID,
   QUICK_SEND_DEFAULT_CAPABILITIES,
@@ -47,10 +48,40 @@ async function http(url, options = {}) {
 
 const VALID_TOKEN = 'valid-test-token';
 
+// Build a fake AI service whose providerRegistry.resolve() succeeds
+// for any model NOT in `unresolvableModels`. Tests that exercise the
+// pre-flight path pass a list of "broken" model ids; everything else
+// resolves to a stub provider object. listAvailableModels controls
+// whether the local-Ollama detection fires (used by suggestion text).
+function makeFakeAiService({
+  unresolvableModels = [],
+  resolveError = null,           // overrides the generic message for ALL unresolvable models
+  ollamaModels = []              // list of model NAMES whose `provider === 'ollama'`
+} = {}) {
+  const stubProvider = { id: 'stub' };
+  return {
+    getProviderRegistry: () => ({
+      resolve: ({ model }) => {
+        if (unresolvableModels.includes(model)) {
+          throw new Error(
+            resolveError ||
+            `No provider matched model "${model}". Configure a provider key in Settings, or pass an explicit \`provider\` field.`
+          );
+        }
+        return stubProvider;
+      }
+    }),
+    modelsService: {
+      getModels: () => ollamaModels.map(name => ({ name, provider: 'ollama' }))
+    }
+  };
+}
+
 function makeFakeOrchestrator({
   agents = [],
   defaultModel = 'test-model',
-  processRequestImpl = null
+  processRequestImpl = null,
+  aiService = makeFakeAiService()
 } = {}) {
   const agentsById = new Map();
   const agentsByName = new Map();
@@ -84,6 +115,7 @@ function makeFakeOrchestrator({
 
   return {
     config: { system: { defaultModel } },
+    aiService,
     processRequest: jest.fn(async (req) => {
       calls.push(req);
       return (processRequestImpl || defaultProcessRequest)(req);
@@ -503,9 +535,10 @@ describe('POST /api/chat/quick-send — agent lifecycle', () => {
     });
     server.close();
     ({ server, baseUrl } = await startApp({ orchestrator }));
-    // Add the agent into the pool too so getAgent finds it for the snapshot
+    // Add the agent into the pool too so getAgent finds it for the snapshot.
+    // currentModel is set so the pre-flight passes and we reach send_message.
     orchestrator.__addAgent({
-      id: 'qs-x', name: 'Quick Send',
+      id: 'qs-x', name: 'Quick Send', currentModel: 'test-model',
       conversations: { full: { messages: [] } }, status: 'active', metadata: {}
     });
     const r = await send({ selected_text: 'x' });
@@ -641,5 +674,273 @@ describe('GET /api/chat/quick-send/messages', () => {
     ({ server, baseUrl } = await startApp({ orchestrator: null }));
     const r = await poll('agentId=qs-1&since=0');
     expect(r.status).toBe(503);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// classifyProviderError — stable code mapping
+// ────────────────────────────────────────────────────────────────
+
+describe('classifyProviderError', () => {
+  it('maps "No provider matched model" to MODEL_PROVIDER_UNAVAILABLE', () => {
+    const r = classifyProviderError(
+      'No provider matched model "anthropic-sonnet". Configure a provider key in Settings...'
+    );
+    expect(r.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
+    expect(r.suggestion).toMatch(/Settings/);
+  });
+
+  it('maps 401/invalid-key errors to PROVIDER_AUTH_ERROR', () => {
+    expect(classifyProviderError('401 Unauthorized: invalid_api_key').code).toBe('PROVIDER_AUTH_ERROR');
+    expect(classifyProviderError('Invalid API key provided').code).toBe('PROVIDER_AUTH_ERROR');
+  });
+
+  it('maps quota/billing/402 errors to PROVIDER_BILLING_ERROR', () => {
+    expect(classifyProviderError('insufficient_quota: You exceeded your quota').code).toBe('PROVIDER_BILLING_ERROR');
+    expect(classifyProviderError('402 Payment Required').code).toBe('PROVIDER_BILLING_ERROR');
+    expect(classifyProviderError('Insufficient credits in your account').code).toBe('PROVIDER_BILLING_ERROR');
+  });
+
+  it('maps 429/rate-limit errors to PROVIDER_RATE_LIMITED', () => {
+    expect(classifyProviderError('429 Too Many Requests').code).toBe('PROVIDER_RATE_LIMITED');
+    expect(classifyProviderError('rate limit exceeded').code).toBe('PROVIDER_RATE_LIMITED');
+  });
+
+  it('falls through to PROVIDER_RUNTIME_ERROR for unrecognised errors', () => {
+    const r = classifyProviderError('Some weird upstream error');
+    expect(r.code).toBe('PROVIDER_RUNTIME_ERROR');
+    expect(r.message).toBe('Some weird upstream error');
+  });
+
+  it('mentions Ollama in the suggestion when hasLocalModels=true', () => {
+    const r = classifyProviderError('No provider matched model "x".', { hasLocalModels: true });
+    expect(r.suggestion).toMatch(/Ollama/);
+  });
+
+  it('does NOT mention Ollama in the suggestion when hasLocalModels=false', () => {
+    const r = classifyProviderError('No provider matched model "x".', { hasLocalModels: false });
+    expect(r.suggestion).not.toMatch(/Ollama/);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// POST pre-flight — model must resolve to a live provider
+// ────────────────────────────────────────────────────────────────
+
+describe('POST /api/chat/quick-send — pre-flight model resolution', () => {
+  const send = (baseUrl, body) => http(`${baseUrl}/api/chat/quick-send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-OnBuzz-Token': VALID_TOKEN },
+    body: JSON.stringify(body)
+  });
+
+  it('503 with MODEL_PROVIDER_UNAVAILABLE when system.defaultModel has no live provider (no agent yet)', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({ unresolvableModels: ['anthropic-sonnet'] })
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'x' });
+      expect(r.status).toBe(503);
+      expect(r.body.ok).toBe(false);
+      expect(r.body.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
+      expect(r.body.message).toMatch(/No provider matched/);
+      expect(r.body.suggestion).toMatch(/Settings|provider/i);
+      expect(r.body.currentModel).toBe('anthropic-sonnet');
+      expect(r.body.error).toBe(r.body.message); // legacy field
+      // The endpoint must NOT have created a broken agent.
+      const createCalls = orchestrator.__calls.filter(c => c.action === 'create_agent');
+      expect(createCalls).toEqual([]);
+    } finally { server.close(); }
+  });
+
+  it('503 when an existing Quick Send agent references an unresolvable model', async () => {
+    // Mirrors the "I have a broken agent on disk from before" case.
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'test-model',
+      aiService: makeFakeAiService({ unresolvableModels: ['anthropic-sonnet'] })
+    });
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send',
+      currentModel: 'anthropic-sonnet',
+      preferredModel: 'anthropic-sonnet',
+      capabilities: ['web'], status: 'active', metadata: {},
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'follow-up' });
+      expect(r.status).toBe(503);
+      expect(r.body.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
+      expect(r.body.currentModel).toBe('anthropic-sonnet');
+      expect(r.body.agentId).toBe('qs-1');
+      // No message dispatched.
+      const sendCalls = orchestrator.__calls.filter(c => c.action === 'send_message');
+      expect(sendCalls).toEqual([]);
+    } finally { server.close(); }
+  });
+
+  it('includes localModelsAvailable=true when Ollama models are visible', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({
+        unresolvableModels: ['anthropic-sonnet'],
+        ollamaModels: ['llama3', 'qwen2']
+      })
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'x' });
+      expect(r.status).toBe(503);
+      expect(r.body.localModelsAvailable).toBe(true);
+      expect(r.body.suggestion).toMatch(/Ollama/);
+    } finally { server.close(); }
+  });
+
+  it('includes localModelsAvailable=false when no Ollama models', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({ unresolvableModels: ['anthropic-sonnet'], ollamaModels: [] })
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'x' });
+      expect(r.body.localModelsAvailable).toBe(false);
+    } finally { server.close(); }
+  });
+
+  it('PROVIDER_AUTH_ERROR code propagates when the resolver throws a 401-shaped message', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'gpt-4',
+      aiService: makeFakeAiService({
+        unresolvableModels: ['gpt-4'],
+        resolveError: '401 Unauthorized: invalid_api_key'
+      })
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'x' });
+      expect(r.body.code).toBe('PROVIDER_AUTH_ERROR');
+    } finally { server.close(); }
+  });
+
+  it('passes through and dispatches normally when the model resolves', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'test-model',
+      aiService: makeFakeAiService()  // resolves everything
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'hello' });
+      expect(r.status).toBe(200);
+      const actions = orchestrator.__calls.map(c => c.action);
+      expect(actions).toEqual(['create_agent', 'send_message']);
+    } finally { server.close(); }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// GET messages — broadened unhealthy detection
+// ────────────────────────────────────────────────────────────────
+
+describe('GET /api/chat/quick-send/messages — delay + tool-result unhealthy detection', () => {
+  const poll = (baseUrl, qs) =>
+    http(`${baseUrl}/api/chat/quick-send/messages?${qs}`, {
+      headers: { 'X-OnBuzz-Token': VALID_TOKEN }
+    });
+
+  it('flags unhealthy=true when delayEndTime is in the future (scheduler set the soft pause)', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send', status: 'active', metadata: {},
+      delayEndTime: new Date(Date.now() + 60_000).toISOString(),
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await poll(baseUrl, 'agentId=qs-1&since=0');
+      expect(r.status).toBe(200);
+      expect(r.body.unhealthy).toBe(true);
+      expect(r.body.errorHint).toMatch(/backoff/i);
+    } finally { server.close(); }
+  });
+
+  it('treats a past delayEndTime as healthy', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send', status: 'active', metadata: {},
+      delayEndTime: new Date(Date.now() - 5_000).toISOString(),
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await poll(baseUrl, 'agentId=qs-1&since=0');
+      expect(r.body.unhealthy).toBe(false);
+    } finally { server.close(); }
+  });
+
+  it('flags unhealthy=true when the tool-result queue has a system-error entry', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send', status: 'active', metadata: {},
+      conversations: { full: { messages: [] } },
+      messageQueues: {
+        toolResults: [
+          { toolId: 'system-error', status: 'failed',
+            error: 'AI service error: No provider matched model "anthropic-sonnet".' }
+        ]
+      }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await poll(baseUrl, 'agentId=qs-1&since=0');
+      expect(r.body.unhealthy).toBe(true);
+      expect(r.body.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
+      expect(r.body.errorHint).toMatch(/No provider matched/);
+      expect(r.body.suggestion).toMatch(/Settings|provider/i);
+    } finally { server.close(); }
+  });
+
+  it('flags unhealthy=true when both delayEndTime AND tool-result are present (uses the tool-result error)', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send', status: 'active', metadata: {},
+      delayEndTime: new Date(Date.now() + 60_000).toISOString(),
+      conversations: { full: { messages: [] } },
+      messageQueues: {
+        toolResults: [
+          { toolId: 'system-error', status: 'failed', error: '401 Unauthorized' }
+        ]
+      }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await poll(baseUrl, 'agentId=qs-1&since=0');
+      expect(r.body.unhealthy).toBe(true);
+      expect(r.body.code).toBe('PROVIDER_AUTH_ERROR');
+    } finally { server.close(); }
+  });
+
+  it('exposes suggestion + localModelsAvailable in the poll response when unhealthy', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      aiService: makeFakeAiService({ ollamaModels: ['llama3'] })
+    });
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send', status: 'active', metadata: {},
+      conversations: { full: { messages: [] } },
+      messageQueues: {
+        toolResults: [
+          { toolId: 'system-error', status: 'failed',
+            error: 'No provider matched model "anthropic-sonnet".' }
+        ]
+      }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await poll(baseUrl, 'agentId=qs-1&since=0');
+      expect(r.body.localModelsAvailable).toBe(true);
+      expect(r.body.suggestion).toMatch(/Ollama/);
+    } finally { server.close(); }
   });
 });

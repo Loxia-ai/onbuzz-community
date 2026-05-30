@@ -246,6 +246,23 @@ function clearError() {
   els.errorBanner.classList.add('hidden');
 }
 
+// Short banner titles for the structured error codes the backend
+// returns from the Quick Send endpoints. Fall back to the server's
+// own message if a code isn't in the table.
+function titleForErrorCode(code) {
+  switch (code) {
+    case 'NO_DEFAULT_MODEL':            return 'No default model';
+    case 'MODEL_PROVIDER_UNAVAILABLE':  return 'Model provider unavailable';
+    case 'PROVIDER_AUTH_ERROR':         return 'Provider key invalid';
+    case 'PROVIDER_BILLING_ERROR':      return 'Provider billing issue';
+    case 'PROVIDER_RATE_LIMITED':       return 'Provider rate-limited';
+    case 'PROVIDER_RUNTIME_ERROR':      return 'Provider error';
+    case 'AGENT_PAUSED':                return 'Quick Send agent paused';
+    case 'AI_SERVICE_UNAVAILABLE':      return 'AI service not ready';
+    default:                            return null;
+  }
+}
+
 // ── Networking ─────────────────────────────────────────────
 async function postQuickSend({ serverUrl, token, selection, userMessage }) {
   const res = await fetch(`${serverUrl}/api/chat/quick-send`, {
@@ -266,9 +283,20 @@ async function postQuickSend({ serverUrl, token, selection, userMessage }) {
   try { json = await res.json(); } catch { /* non-JSON */ }
 
   if (!res.ok) {
-    const detail = json && json.error ? `: ${json.error}` : '';
+    // Surface the structured error fields the backend returns for
+    // provider/model failures (code + message + suggestion +
+    // localModelsAvailable). handleSend's catch reads these to build
+    // a useful banner instead of a generic "HTTP 503".
+    const detail = json && (json.message || json.error)
+      ? `: ${json.message || json.error}`
+      : '';
     const err = new Error(`HTTP ${res.status}${detail}`);
     err.status = res.status;
+    err.code = json?.code || null;
+    err.serverMessage = json?.message || json?.error || null;
+    err.suggestion = json?.suggestion || null;
+    err.localModelsAvailable = json?.localModelsAvailable || false;
+    err.structured = Boolean(json?.message || json?.code);
     throw err;
   }
   return json;
@@ -327,14 +355,19 @@ async function pollForReply({ serverUrl, token, agentId, since, signal }) {
     const messages = (body && body.messages) || [];
 
     // First, check whether the server is telling us the agent is in a
-    // bad state. If yes, stop polling and bubble the hint up — this is
-    // the "Quick Send agent paused / no provider key" case, which used
-    // to hang on "Thinking…" until the 60s timeout.
+    // bad state. If yes, stop polling and bubble the structured hint
+    // up — handleSend's catch composes a user-facing banner from
+    // err.serverMessage + err.suggestion when present.
     if (body && body.unhealthy) {
       const status = body.agentStatus ? ` (agent status: ${body.agentStatus})` : '';
       const hint = body.errorHint ? ` — ${body.errorHint}` : '';
       const err = new Error(`Quick Send agent is unhealthy${status}${hint}`);
       err.unhealthy = true;
+      err.code = body.code || null;
+      err.serverMessage = body.errorHint || null;
+      err.suggestion = body.suggestion || null;
+      err.localModelsAvailable = body.localModelsAvailable || false;
+      err.structured = Boolean(body.errorHint || body.code);
       throw err;
     }
 
@@ -434,10 +467,18 @@ async function handleSend() {
     }
     if (err.status === 401) {
       showError('OnBuzz rejected the extension token. Open Settings and paste a fresh token.');
+    } else if (err.structured && (err.serverMessage || err.suggestion)) {
+      // Structured server response (POST 503 with provider hint, or
+      // poll unhealthy with errorHint+suggestion). Prefer the server's
+      // own copy verbatim — it already says what the user needs to do.
+      showError('', {
+        title: titleForErrorCode(err.code) || err.serverMessage || 'OnBuzz returned an error',
+        body: [err.serverMessage, err.suggestion].filter(Boolean).join(' ').trim()
+            || 'Open OnBuzz Settings to fix the issue.'
+      });
     } else if (err.unhealthy) {
-      // The poll endpoint told us the agent is paused/errored. This
-      // is almost always "no provider key for the configured model"
-      // — the err.message already carries the server-supplied hint.
+      // Fallback for older backends that flagged unhealthy without the
+      // structured body.
       showError(`${err.message}. Open OnBuzz Settings → Providers and confirm a key is configured for the Quick Send agent's model.`);
     } else if (err.message && /HTTP 5\d\d/.test(err.message)) {
       showError(`OnBuzz returned a server error. ${err.message}`);

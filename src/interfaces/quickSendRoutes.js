@@ -107,6 +107,122 @@ export function composeQuickSendMessage({
   return parts.join('\n');
 }
 
+// ── Provider-error classification ───────────────────────────────
+//
+// Small string-matching classifier mapping common provider failure
+// messages to stable codes and actionable suggestions. Keep this
+// intentionally simple — the goal is a useful banner in the side
+// panel, not a full taxonomy. Categories were chosen from real
+// failure modes seen in this project (anthropic-sonnet selected with
+// no live anthropic provider, expired keys, OpenAI billing, etc.).
+//
+// hasLocalModels comes from the optional Ollama detection below and
+// changes only the wording of the suggestion.
+export function classifyProviderError(message, { hasLocalModels = false } = {}) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
+  const switchHint = hasLocalModels
+    ? 'You can also switch the Quick Send agent to a local Ollama model to test without paid credits.'
+    : null;
+
+  if (/no provider matched model/i.test(text)) {
+    return {
+      code: 'MODEL_PROVIDER_UNAVAILABLE',
+      message: text,
+      suggestion: [
+        'No working provider is configured for this model. Add an API key in OnBuzz Settings, or switch the Quick Send agent to a model whose provider is configured.',
+        switchHint
+      ].filter(Boolean).join(' ')
+    };
+  }
+  if (/insufficient[_ ]quota|insufficient[_ ]credit|payment[_ ]required|\b402\b|billing/i.test(lower)) {
+    return {
+      code: 'PROVIDER_BILLING_ERROR',
+      message: text,
+      suggestion: [
+        'The selected paid model could not be used because of a billing or credit issue. Add credits in your provider account, or switch Quick Send to a different model.',
+        switchHint
+      ].filter(Boolean).join(' ')
+    };
+  }
+  if (/(invalid|incorrect|bad)[_ ]?api[_ ]?key|unauthorized|\b401\b|invalid_api_key/i.test(lower)) {
+    return {
+      code: 'PROVIDER_AUTH_ERROR',
+      message: text,
+      suggestion: [
+        'The API key for this provider appears to be invalid or missing. Update it in OnBuzz Settings, or switch Quick Send to a different model.',
+        switchHint
+      ].filter(Boolean).join(' ')
+    };
+  }
+  if (/rate[_ ]?limit|too[_ ]many[_ ]requests|\b429\b/i.test(lower)) {
+    return {
+      code: 'PROVIDER_RATE_LIMITED',
+      message: text,
+      suggestion: 'The provider is rate-limiting requests. Wait a moment and try again, or switch Quick Send to a different model.'
+    };
+  }
+  return {
+    code: 'PROVIDER_RUNTIME_ERROR',
+    message: text || 'Provider returned an unknown error.',
+    suggestion: [
+      'The provider returned an error. Check the OnBuzz server logs for details, or switch Quick Send to a different model.',
+      switchHint
+    ].filter(Boolean).join(' ')
+  };
+}
+
+// Detect whether any Ollama-provided models are visible to OnBuzz.
+// Used to enrich error suggestions with a "you have local models
+// available" hint without forcing the user to discover Ollama on
+// their own. Best-effort — never throws, returns false on any error.
+function hasLocalOllamaModels(aiService) {
+  try {
+    const models = aiService?.modelsService?.getModels?.() || [];
+    return Array.isArray(models) && models.some(m => m && m.provider === 'ollama');
+  } catch {
+    return false;
+  }
+}
+
+// Pre-flight a model id against the live provider registry. Returns
+// { ok: true } when the model resolves cleanly, or a structured error
+// payload (code + message + suggestion) otherwise.
+//
+// The provider registry's resolve() is the same call the AI service
+// makes at dispatch time — running it here just lets us fail fast
+// instead of letting the side panel hit the 60s poll timeout.
+function preflightCheckModel(aiService, model) {
+  if (!model) {
+    return {
+      ok: false,
+      code: 'NO_DEFAULT_MODEL',
+      message: 'No default model is configured.',
+      suggestion: 'Open OnBuzz Settings and pick a default model before using the Send to OnBuzz extension.'
+    };
+  }
+  try {
+    const registry = aiService?.getProviderRegistry?.();
+    if (!registry) {
+      return {
+        ok: false,
+        code: 'AI_SERVICE_UNAVAILABLE',
+        message: 'AI service is not attached.',
+        suggestion: 'Restart OnBuzz and try again.'
+      };
+    }
+    registry.resolve({ model });
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      ...classifyProviderError(err.message, {
+        hasLocalModels: hasLocalOllamaModels(aiService)
+      })
+    };
+  }
+}
+
 export function registerQuickSendRoutes(app, deps = {}) {
   if (!app) return;
 
@@ -206,20 +322,43 @@ export function registerQuickSendRoutes(app, deps = {}) {
       const pool = await orchestrator.agentPool.listActiveAgents();
       let quickSendAgent = pool.find((a) => a.name === QUICK_SEND_AGENT_NAME);
 
+      // Pre-flight model check. Catches two cases the side panel was
+      // hitting as a generic 60-second timeout:
+      //   1. The user's system.defaultModel points at a provider that
+      //      isn't actually live (e.g. anthropic-sonnet selected, no
+      //      working Anthropic key) — fail BEFORE creating a broken
+      //      agent.
+      //   2. A pre-existing Quick Send agent on disk still references
+      //      an unusable model (the user installed OnBuzz, configured
+      //      Anthropic, removed the key later, and now the saved
+      //      agent's currentModel is anthropic-sonnet) — fail BEFORE
+      //      queuing the message, since dispatch would just throw.
+      const targetModel = quickSendAgent
+        ? (quickSendAgent.currentModel || quickSendAgent.preferredModel || null)
+        : (orchestrator.config?.system?.defaultModel || null);
+      const preflight = preflightCheckModel(orchestrator.aiService, targetModel);
+      if (!preflight.ok) {
+        return res.status(STATUS.SERVICE_UNAVAILABLE).json({
+          ok: false,
+          code: preflight.code,
+          message: preflight.message,
+          suggestion: preflight.suggestion,
+          // Legacy `error` field kept so older side-panel builds (and
+          // generic error-banner code) still surface something useful.
+          error: preflight.message,
+          localModelsAvailable: hasLocalOllamaModels(orchestrator.aiService),
+          agentId: quickSendAgent?.id || null,
+          currentModel: targetModel || null
+        });
+      }
+
       if (!quickSendAgent) {
-        const defaultModel = orchestrator.config?.system?.defaultModel || null;
-        if (!defaultModel) {
-          return res.status(STATUS.SERVICE_UNAVAILABLE).json({
-            ok: false,
-            error: 'No default model is configured. Open OnBuzz Settings and pick a model before using the Send to OnBuzz extension.'
-          });
-        }
-        logger.info('Quick Send: creating agent', { model: defaultModel });
+        logger.info('Quick Send: creating agent', { model: targetModel });
         const createResp = await orchestrator.processRequest({
           interface: IFACES.WEB,
           sessionId,
           action: ACTIONS.CREATE_AGENT,
-          payload: buildQuickSendAgentSeed(defaultModel),
+          payload: buildQuickSendAgentSeed(targetModel),
           projectDir
         });
         if (!createResp?.success) {
@@ -340,22 +479,66 @@ export function registerQuickSendRoutes(app, deps = {}) {
         type: m.type || null
       }));
 
-      // Look for the AI-service-failure shape: the scheduler consolidates
-      // a failed turn into a user-role message tagged with [system-error]
-      // / "AI service error". When that appears in the new slice, the
-      // side panel should give up early.
+      // Unhealthy detection — three signals, ordered by how early they
+      // appear after an AI failure (so the side panel can stop polling
+      // as soon as the backend knows something is wrong):
+      //
+      //   (a) agent.delayEndTime in the future — the scheduler sets this
+      //       directly on any AI-service failure (60s default), BEFORE
+      //       the failure is consolidated into the conversation. This
+      //       is the earliest reliable signal.
+      //
+      //   (b) Pending tool-result queue entries with toolId='system-error'
+      //       or status='failed' — added alongside the delay, still
+      //       before consolidation. Carries the actual error string.
+      //
+      //   (c) [system-error] / "AI service error" user-role rows in the
+      //       conversation slice — the consolidated form, only present
+      //       after the next scheduler tick fires.
       const newSlice = all.slice(since);
-      let latestErrorMessage = null;
+      let consolidatedErrorMessage = null;
       for (let i = newSlice.length - 1; i >= 0; i--) {
         const m = newSlice[i];
         const text = typeof m.content === 'string' ? m.content : '';
         if (m.role === 'user' && /\[system-error\]|AI service error/i.test(text)) {
-          latestErrorMessage = text.split('\n').find((l) => /\[system-error\]|AI service error/i.test(l))
+          consolidatedErrorMessage = text.split('\n').find((l) => /\[system-error\]|AI service error/i.test(l))
             || 'Agent reported an error';
           break;
         }
       }
+
+      const pendingToolResults = agent.messageQueues?.toolResults || [];
+      const pendingError = pendingToolResults.find(
+        (tr) => tr && (tr.toolId === 'system-error' || tr.status === 'failed')
+      );
+
+      const now = Date.now();
+      const delayUntilMs = agent.delayEndTime ? new Date(agent.delayEndTime).getTime() : 0;
+      const isDelayed = Number.isFinite(delayUntilMs) && delayUntilMs > now;
       const isPaused = agent.status === 'paused' || agent.status === 'suspended';
+
+      // Pick the most informative error string we can find, then run
+      // it through the classifier for a stable code + suggestion.
+      let rawError = consolidatedErrorMessage
+        || pendingError?.error
+        || (isDelayed && agent.delayEndTime
+            ? `Agent is in error-backoff until ${agent.delayEndTime}.`
+            : null);
+      let errorHint = null;
+      let errorCode = null;
+      let suggestion = null;
+      if (rawError) {
+        const classified = classifyProviderError(rawError, {
+          hasLocalModels: hasLocalOllamaModels(orchestrator.aiService)
+        });
+        errorHint = classified.message;
+        errorCode = classified.code;
+        suggestion = classified.suggestion;
+      } else if (isPaused) {
+        errorHint = `Agent status is ${agent.status}.`;
+        errorCode = 'AGENT_PAUSED';
+        suggestion = 'Open the Quick Send agent in OnBuzz and check why it is paused.';
+      }
 
       return res.json({
         ok: true,
@@ -364,8 +547,11 @@ export function registerQuickSendRoutes(app, deps = {}) {
         messages: slice,
         agentStatus: agent.status || null,
         currentModel: agent.currentModel || null,
-        unhealthy: Boolean(isPaused || latestErrorMessage),
-        errorHint: latestErrorMessage
+        unhealthy: Boolean(isPaused || isDelayed || pendingError || consolidatedErrorMessage),
+        errorHint,
+        code: errorCode,
+        suggestion,
+        localModelsAvailable: hasLocalOllamaModels(orchestrator.aiService)
       });
     } catch (error) {
       try { logger.error('Quick-send poll API error', { error: error.message }); } catch (_) {}
