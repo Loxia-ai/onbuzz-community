@@ -427,28 +427,6 @@ class MessageProcessor {
           continue;
         }
 
-        // Restricted-toolset gate. Agents carrying an authoritative
-        // allowlist (currently the Quick Send agent for the browser
-        // extension; see services/quickSendPolicy.js) cannot dispatch
-        // tools outside the list, even if the LLM tries. We deny here
-        // — before both the sync and async branches — so the rule
-        // applies regardless of how the tool was scheduled.
-        if (Array.isArray(context.restrictedToolset)
-            && !context.restrictedToolset.includes(command.toolId)) {
-          this.logger.warn(`Tool denied by restricted-toolset policy`, {
-            agentId: context.agentId,
-            toolId: command.toolId,
-            allowed: context.restrictedToolset
-          });
-          results.push({
-            toolId: command.toolId,
-            status: 'failed',
-            error: `Tool '${command.toolId}' is not permitted for this agent. Allowed tools: ${context.restrictedToolset.join(', ')}`,
-            timestamp: new Date().toISOString()
-          });
-          continue;
-        }
-
         this.logger.info(`Executing tool: ${command.toolId}`, {
           agentId: context.agentId,
           isAsync: command.isAsync
@@ -875,15 +853,6 @@ class MessageProcessor {
         // executeTools below) or inspect the full map here if they need
         // cross-tool state. See agentPool.js for the schema contract.
         agentToolConfig: (agent && agent.toolConfig) ? agent.toolConfig : {},
-        // Authoritative tool allowlist for this agent. When present
-        // (currently only the Quick Send agent driven by the browser
-        // extension carries one), executeTools refuses to dispatch any
-        // tool not in the list. agent.capabilities is system-prompt-only
-        // in this codebase — see services/quickSendPolicy.js for why we
-        // need a separate, runtime-enforced gate.
-        restrictedToolset: Array.isArray(agent?.metadata?.restrictedToolset)
-          ? agent.metadata.restrictedToolset
-          : null,
         agentPool: this.agentPool,
         contextManager: this.contextManager,
         aiService: this.aiService,
