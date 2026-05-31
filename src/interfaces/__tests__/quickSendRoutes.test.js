@@ -712,6 +712,27 @@ describe('classifyProviderError', () => {
     expect(r.message).toBe('Some weird upstream error');
   });
 
+  it('strips the scheduler "AI service error: ... Agent temporarily paused." wrapper from the message', () => {
+    const wrapped = 'AI service error: insufficient_quota: You exceeded your current quota. Agent temporarily paused.';
+    const r = classifyProviderError(wrapped);
+    // Classification unchanged
+    expect(r.code).toBe('PROVIDER_BILLING_ERROR');
+    // Display message is the inner provider text only — no scheduler wording
+    expect(r.message).toBe('insufficient_quota: You exceeded your current quota');
+    expect(r.message).not.toMatch(/AI service error/i);
+    expect(r.message).not.toMatch(/Agent (temporarily )?paused/i);
+  });
+
+  it('is a no-op when neither prefix nor suffix is present', () => {
+    const raw = 'insufficient_quota: You exceeded your current quota';
+    expect(classifyProviderError(raw).message).toBe(raw);
+  });
+
+  it('handles partial wrappers (prefix only, or alternate "Agent paused.")', () => {
+    expect(classifyProviderError('AI service error: 401 Unauthorized').message).toBe('401 Unauthorized');
+    expect(classifyProviderError('boom. Agent paused.').message).toBe('boom');
+  });
+
   it('mentions Ollama in the suggestion when hasLocalModels=true', () => {
     const r = classifyProviderError('No provider matched model "x".', { hasLocalModels: true });
     expect(r.suggestion).toMatch(/Ollama/);
@@ -888,7 +909,7 @@ describe('GET /api/chat/quick-send/messages — delay + tool-result unhealthy de
       messageQueues: {
         toolResults: [
           { toolId: 'system-error', status: 'failed',
-            error: 'AI service error: No provider matched model "anthropic-sonnet".' }
+            error: 'AI service error: No provider matched model "anthropic-sonnet". Agent temporarily paused.' }
         ]
       }
     });
@@ -899,6 +920,49 @@ describe('GET /api/chat/quick-send/messages — delay + tool-result unhealthy de
       expect(r.body.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
       expect(r.body.errorHint).toMatch(/No provider matched/);
       expect(r.body.suggestion).toMatch(/Settings|provider/i);
+      // Banner shouldn't expose the scheduler's internal wrapper wording.
+      expect(r.body.errorHint).not.toMatch(/AI service error/i);
+      expect(r.body.errorHint).not.toMatch(/Agent (temporarily )?paused/i);
+    } finally { server.close(); }
+  });
+
+  it('strips the scheduler wrapper from a wrapped billing/quota error end-to-end', async () => {
+    // Full poll-path regression: the scheduler wraps real provider
+    // errors with "AI service error: <msg>. Agent temporarily paused."
+    // before queueing them as system-error tool results. The side
+    // panel should see the inner provider text, not the wrapper.
+    const orchestrator = makeFakeOrchestrator({
+      aiService: makeFakeAiService({ ollamaModels: ['llama3'] })
+    });
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send', status: 'active', metadata: {},
+      conversations: { full: { messages: [] } },
+      messageQueues: {
+        toolResults: [
+          {
+            toolId: 'system-error',
+            status: 'failed',
+            error: 'AI service error: insufficient_quota: You exceeded your current quota, please check your plan and billing details. Agent temporarily paused.'
+          }
+        ]
+      }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await poll(baseUrl, 'agentId=qs-1&since=0');
+      expect(r.body.unhealthy).toBe(true);
+      expect(r.body.code).toBe('PROVIDER_BILLING_ERROR');
+      // Classification still picks up the inner keyword
+      expect(r.body.errorHint).toMatch(/insufficient_quota/);
+      expect(r.body.errorHint).toMatch(/exceeded your current quota/);
+      // Wrapper wording is not exposed to the user
+      expect(r.body.errorHint).not.toMatch(/AI service error/i);
+      expect(r.body.errorHint).not.toMatch(/Agent (temporarily )?paused/i);
+      // Suggestion is the billing one (not the generic runtime one) and
+      // mentions Ollama because local models are available.
+      expect(r.body.suggestion).toMatch(/billing|credit/i);
+      expect(r.body.suggestion).toMatch(/Ollama/);
+      expect(r.body.localModelsAvailable).toBe(true);
     } finally { server.close(); }
   });
 

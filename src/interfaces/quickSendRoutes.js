@@ -118,8 +118,27 @@ export function composeQuickSendMessage({
 //
 // hasLocalModels comes from the optional Ollama detection below and
 // changes only the wording of the suggestion.
+
+// Strip the agentScheduler's "AI service error: ... Agent temporarily
+// paused." wrapper added in _handleAIServiceError before showing the
+// message to the user. The user only needs to see the inner provider
+// error and our suggestion — they don't need to read the scheduler's
+// internal wording. Classification still works because the inner
+// message carries the real keywords we match on (insufficient_quota,
+// 401, rate limit, etc.).
+//
+// No-op for messages that aren't wrapped (e.g. raw provider-resolve
+// errors from the pre-flight path).
+function stripSchedulerWrap(text) {
+  if (typeof text !== 'string') return '';
+  let cleaned = text.trim();
+  cleaned = cleaned.replace(/^AI service error:\s*/i, '');
+  cleaned = cleaned.replace(/\.\s*Agent\s+(?:temporarily\s+)?paused\.?\s*$/i, '');
+  return cleaned.trim();
+}
+
 export function classifyProviderError(message, { hasLocalModels = false } = {}) {
-  const text = String(message || '').trim();
+  const text = stripSchedulerWrap(String(message || ''));
   const lower = text.toLowerCase();
   const switchHint = hasLocalModels
     ? 'You can also switch the Quick Send agent to a local Ollama model to test without paid credits.'
