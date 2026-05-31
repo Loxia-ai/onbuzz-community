@@ -246,6 +246,14 @@ function pickFallbackPoolModel(pool, aiService) {
 // The provider registry's resolve() is the same call the AI service
 // makes at dispatch time — running it here just lets us fail fast
 // instead of letting the side panel hit the 60s poll timeout.
+//
+// Re-exported as `preflightCheckModelExport` so quickSendCleanup.js
+// can use the exact same check during consolidation, keeping a
+// single source of truth for "is this model usable right now?".
+export function preflightCheckModelExport(aiService, model) {
+  return preflightCheckModel(aiService, model);
+}
+
 function preflightCheckModel(aiService, model) {
   if (!model) {
     return {
@@ -289,6 +297,13 @@ export function registerQuickSendRoutes(app, deps = {}) {
   const logger = deps.logger || { info: () => {}, error: () => {}, warn: () => {} };
   const constants = deps.constants || {};
   const { INTERFACE_TYPES, ORCHESTRATOR_ACTIONS, HTTP_STATUS } = constants;
+
+  // Cleanup helper imported lazily so the routes module remains
+  // independently parseable in environments that don't load it.
+  const consolidate = deps.consolidate || (async (args) => {
+    const mod = await import('./quickSendCleanup.js');
+    return mod.consolidateQuickSendAgents(args);
+  });
 
   // Defensive defaults in case constants weren't injected — keeps the
   // module functional in isolation (e.g. test rigs that don't import
@@ -369,12 +384,56 @@ export function registerQuickSendRoutes(app, deps = {}) {
       const sessionId = EXTENSION_SESSION_ID;
       const projectDir = process.cwd();
 
+      // Consolidate any duplicate or stale Quick Send agents BEFORE
+      // the singleton lookup. This is what makes the singleton lookup
+      // disk-aware: the cleanup helper reads both the pool AND the
+      // persisted agent index, picks a canonical, deletes the rest,
+      // and if the canonical only exists on disk it gets resumed into
+      // the pool here so the rest of this handler can treat it like
+      // any other pool agent.
+      //
+      // Cleanup runs every POST so it remains idempotent — after the
+      // first run a single Quick Send exists, second run sees one and
+      // does nothing.
+      let consolidatedCanonical = null;
+      let recreateAfterCleanup = false;
+      try {
+        const result = await consolidate({
+          orchestrator,
+          constants: { INTERFACE_TYPES, ORCHESTRATOR_ACTIONS },
+          logger,
+          sessionId,
+          projectDir,
+          preflight: preflightCheckModelExport
+        });
+        consolidatedCanonical = result.canonical;
+        recreateAfterCleanup = result.recreateRequested;
+        if (result.removed && result.removed.length > 0) {
+          logger.info('Quick Send: cleanup removed duplicate agents', {
+            removed: result.removed,
+            canonicalId: consolidatedCanonical?.id || null,
+            recreateRequested: recreateAfterCleanup
+          });
+        }
+      } catch (err) {
+        // Cleanup failures must never break a legitimate send —
+        // continue with whatever the pool currently exposes.
+        logger.warn('Quick Send: cleanup threw, continuing', { error: err.message });
+      }
+
       // Singleton lookup. The Quick Send agent is a regular pool
       // agent; we never mutate it after creation. If the user wants
       // a different model or different capabilities, they edit it
       // in the Settings UI like any other agent.
       const pool = await orchestrator.agentPool.listActiveAgents();
-      let quickSendAgent = pool.find((a) => a.name === QUICK_SEND_AGENT_NAME);
+      // Prefer the consolidated canonical from the cleanup step if
+      // present; otherwise fall back to a plain pool lookup. When
+      // recreateAfterCleanup fired, we deliberately leave
+      // quickSendAgent unset so the existing create-with-fallback
+      // branch builds a fresh agent with a working model.
+      let quickSendAgent = recreateAfterCleanup
+        ? null
+        : (consolidatedCanonical || pool.find((a) => a.name === QUICK_SEND_AGENT_NAME));
 
       // Pre-flight model check. Catches two cases the side panel was
       // hitting as a generic 60-second timeout:

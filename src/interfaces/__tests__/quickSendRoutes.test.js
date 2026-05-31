@@ -77,11 +77,26 @@ function makeFakeAiService({
   };
 }
 
+// Minimal stateManager fake so the consolidation step (run from the
+// POST handler) can load the disk-side agent index and remove stale
+// Quick Send entries. The cleanup helper short-circuits when this is
+// absent, which is why existing tests that don't pass it still pass.
+function makeFakeStateManagerForRoutes({ index = {} } = {}) {
+  const idx = JSON.parse(JSON.stringify(index));
+  return {
+    loadAgentIndex: async () => JSON.parse(JSON.stringify(idx)),
+    removeFromAgentIndex: async (id) => { delete idx[id]; },
+    getStateDir: () => '/mock/state',
+    __peekIndex: () => JSON.parse(JSON.stringify(idx))
+  };
+}
+
 function makeFakeOrchestrator({
   agents = [],
   defaultModel = 'test-model',
   processRequestImpl = null,
-  aiService = makeFakeAiService()
+  aiService = makeFakeAiService(),
+  stateManager = null
 } = {}) {
   const agentsById = new Map();
   const agentsByName = new Map();
@@ -110,19 +125,39 @@ function makeFakeOrchestrator({
     if (action === 'send_message') {
       return { success: true };
     }
+    if (action === 'delete_agent') {
+      if (!agentsById.has(payload.agentId)) {
+        return { success: false, error: 'agent not found' };
+      }
+      return { success: true };
+    }
     return { success: false, error: `unknown action ${action}` };
   };
 
   return {
     config: { system: { defaultModel } },
     aiService,
+    stateManager,
     processRequest: jest.fn(async (req) => {
       calls.push(req);
-      return (processRequestImpl || defaultProcessRequest)(req);
+      const handler = (processRequestImpl || defaultProcessRequest);
+      const result = await handler(req);
+      // Apply pool side effects for delete_agent so tests can observe
+      // that cleanup actually removed in-pool duplicates.
+      if (req.action === 'delete_agent' && result?.success) {
+        agentsById.delete(req.payload.agentId);
+      }
+      return result;
     }),
     agentPool: {
       listActiveAgents: jest.fn(async () => Array.from(agentsById.values())),
-      getAgent: jest.fn(async (id) => agentsById.get(id) || null)
+      getAgent: jest.fn(async (id) => agentsById.get(id) || null),
+      resumeAgent: jest.fn(async (agentData) => {
+        const obj = { ...agentData };
+        agentsById.set(obj.id, obj);
+        agentsByName.set(obj.name, obj);
+        return obj;
+      })
     },
     __calls: calls,
     __addAgent: (a) => { agentsById.set(a.id, a); agentsByName.set(a.name, a); }
@@ -1190,6 +1225,131 @@ describe('GET /api/chat/quick-send/messages — delay + tool-result unhealthy de
       const r = await poll(baseUrl, 'agentId=qs-1&since=0');
       expect(r.body.localModelsAvailable).toBe(true);
       expect(r.body.suggestion).toMatch(/Ollama/);
+    } finally { server.close(); }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// POST integrates the duplicate-cleanup helper
+// ────────────────────────────────────────────────────────────────
+
+describe('POST /api/chat/quick-send — duplicate cleanup integration', () => {
+  function diskIndex(entries) {
+    const out = {};
+    for (const [id, params] of Object.entries(entries)) {
+      out[id] = {
+        name: params.name || 'Quick Send',
+        type: 'user-created',
+        stateFile: `agents/agent-${id}-state.json`,
+        conversationsFile: `agents/agent-${id}-conversations.json`,
+        model: params.model || 'test-model',
+        lastActivity: params.lastActivity || null,
+        status: 'active',
+        capabilities: []
+      };
+    }
+    return out;
+  }
+
+  const send = (baseUrl, body) => http(`${baseUrl}/api/chat/quick-send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-OnBuzz-Token': VALID_TOKEN },
+    body: JSON.stringify(body)
+  });
+
+  it('cleans up multiple in-pool Quick Send duplicates and uses the canonical for the send', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'test-model',
+      stateManager: makeFakeStateManagerForRoutes({
+        index: diskIndex({
+          'qs-A': { model: 'test-model', lastActivity: '2026-05-30T19:00:00Z' },
+          'qs-B': { model: 'test-model', lastActivity: '2026-05-30T20:00:00Z' }
+        })
+      })
+    });
+    // Both Quick Send agents in the pool. qs-B is more recent.
+    orchestrator.__addAgent({
+      id: 'qs-A', name: 'Quick Send',
+      currentModel: 'test-model',
+      lastActivity: '2026-05-30T19:00:00Z',
+      conversations: { full: { messages: [] } }
+    });
+    orchestrator.__addAgent({
+      id: 'qs-B', name: 'Quick Send',
+      currentModel: 'test-model',
+      lastActivity: '2026-05-30T20:00:00Z',
+      conversations: { full: { messages: [] } }
+    });
+
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'first send after cleanup' });
+      expect(r.status).toBe(200);
+      // Send dispatched to qs-B (the canonical winner).
+      const sendCall = orchestrator.__calls.find(c => c.action === 'send_message');
+      expect(sendCall.payload.agentId).toBe('qs-B');
+      // qs-A removed via DELETE_AGENT.
+      const deleted = orchestrator.__calls
+        .filter(c => c.action === 'delete_agent')
+        .map(c => c.payload.agentId);
+      expect(deleted).toEqual(['qs-A']);
+    } finally { server.close(); }
+  });
+
+  it('is idempotent — a second POST against a clean pool dispatches no further deletes', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'test-model',
+      stateManager: makeFakeStateManagerForRoutes({
+        index: diskIndex({
+          'qs-only': { model: 'test-model', lastActivity: '2026-05-30T20:00:00Z' }
+        })
+      })
+    });
+    orchestrator.__addAgent({
+      id: 'qs-only', name: 'Quick Send',
+      currentModel: 'test-model',
+      lastActivity: '2026-05-30T20:00:00Z',
+      conversations: { full: { messages: [] } }
+    });
+
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      await send(baseUrl, { selected_text: 'one' });
+      await send(baseUrl, { selected_text: 'two' });
+      const deleted = orchestrator.__calls.filter(c => c.action === 'delete_agent');
+      expect(deleted).toEqual([]);
+    } finally { server.close(); }
+  });
+
+  it('removes disk-only Quick Send entries when only the pool is checked', async () => {
+    const stateMgr = makeFakeStateManagerForRoutes({
+      index: diskIndex({
+        'qs-disk-old':    { model: 'test-model', lastActivity: '2025-01-01T00:00:00Z' },
+        'qs-disk-newer':  { model: 'test-model', lastActivity: '2026-05-30T22:00:00Z' },
+        'research-keep':  { name: 'Research', model: 'test-model', lastActivity: '2026-05-30T21:00:00Z' }
+      })
+    });
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'test-model',
+      stateManager: stateMgr
+    });
+    // Nothing in pool — both Quick Send entries live only on disk.
+
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'x' });
+      expect(r.status).toBe(200);
+      // qs-disk-old was removed from the disk index. qs-disk-newer is
+      // the canonical, hydrated via resumeAgent (the fake one just
+      // takes the supplied data — there is no per-agent state file
+      // here so the canonical resume fails silently, BUT the create
+      // path then runs against a clean pool and produces a fresh
+      // agent; either way no duplicates remain on disk).
+      const remaining = Object.keys(stateMgr.__peekIndex()).sort();
+      // research-keep untouched.
+      expect(remaining).toContain('research-keep');
+      // qs-disk-old gone.
+      expect(remaining).not.toContain('qs-disk-old');
     } finally { server.close(); }
   });
 });
