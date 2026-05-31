@@ -855,8 +855,193 @@ describe('POST /api/chat/quick-send — pre-flight model resolution', () => {
     try {
       const r = await send(baseUrl, { selected_text: 'hello' });
       expect(r.status).toBe(200);
+      expect(r.body.usedFallbackModel).toBeNull();
       const actions = orchestrator.__calls.map(c => c.action);
       expect(actions).toEqual(['create_agent', 'send_message']);
+    } finally { server.close(); }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// POST creation-time fallback to a working pool agent's model
+// ────────────────────────────────────────────────────────────────
+
+describe('POST /api/chat/quick-send — creation-time fallback', () => {
+  const send = (baseUrl, body) => http(`${baseUrl}/api/chat/quick-send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-OnBuzz-Token': VALID_TOKEN },
+    body: JSON.stringify(body)
+  });
+
+  it('falls back to a working pool model when defaultModel is broken (no Quick Send agent yet)', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({ unresolvableModels: ['anthropic-sonnet'] })
+    });
+    // Seed a pre-existing working agent the user has been chatting with.
+    orchestrator.__addAgent({
+      id: 'research-1', name: 'Research Agent',
+      currentModel: 'llama3.2:3b', preferredModel: 'llama3.2:3b',
+      lastActivity: new Date('2026-01-01T12:00:00Z').toISOString(),
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'fresh send' });
+      expect(r.status).toBe(200);
+      expect(r.body.ok).toBe(true);
+      expect(r.body.usedFallbackModel).toMatchObject({
+        from: 'anthropic-sonnet',
+        to: 'llama3.2:3b',
+        referenceAgent: 'Research Agent',
+        reason: 'MODEL_PROVIDER_UNAVAILABLE'
+      });
+      // Agent was created with the fallback model, not the broken default.
+      const createCall = orchestrator.__calls.find(c => c.action === 'create_agent');
+      expect(createCall.payload.model).toBe('llama3.2:3b');
+    } finally { server.close(); }
+  });
+
+  it('picks the most-recently-active candidate when multiple agents are available', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({ unresolvableModels: ['anthropic-sonnet'] })
+    });
+    orchestrator.__addAgent({
+      id: 'older-1', name: 'Older Agent',
+      currentModel: 'older-model',
+      lastActivity: new Date('2025-01-01T00:00:00Z').toISOString(),
+      conversations: { full: { messages: [] } }
+    });
+    orchestrator.__addAgent({
+      id: 'newer-1', name: 'Newer Agent',
+      currentModel: 'newer-model',
+      lastActivity: new Date('2026-05-30T18:00:00Z').toISOString(),
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'pick the newer one' });
+      expect(r.body.usedFallbackModel.to).toBe('newer-model');
+      expect(r.body.usedFallbackModel.referenceAgent).toBe('Newer Agent');
+    } finally { server.close(); }
+  });
+
+  it('skips Quick Send itself when scanning for fallback candidates', async () => {
+    // If a Quick Send agent already exists in the pool, the route
+    // takes the "existing agent" branch and the fallback never runs.
+    // This test guards the OTHER direction: if for some odd reason the
+    // pool happens to have an agent named "Quick Send" alongside the
+    // missing-target case (impossible in practice), the fallback must
+    // not consider Quick Send as a candidate.
+    //
+    // Constructed indirectly: a corrupt pool with a Quick Send agent
+    // whose model is also broken. Existing agent path → 503 (no
+    // fallback for existing agents).
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({
+        unresolvableModels: ['anthropic-sonnet', 'also-broken']
+      })
+    });
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send',
+      currentModel: 'also-broken',
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'x' });
+      // Existing-agent path with broken model → 503, no fallback,
+      // no auto-mutation.
+      expect(r.status).toBe(503);
+      expect(r.body.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
+      const createCalls = orchestrator.__calls.filter(c => c.action === 'create_agent');
+      expect(createCalls).toEqual([]);
+    } finally { server.close(); }
+  });
+
+  it('skips candidates whose own model also fails to resolve', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({
+        unresolvableModels: ['anthropic-sonnet', 'broken-too']
+      })
+    });
+    orchestrator.__addAgent({
+      id: 'broken-agent', name: 'Broken Agent',
+      currentModel: 'broken-too',
+      lastActivity: new Date('2026-05-30T19:00:00Z').toISOString(),
+      conversations: { full: { messages: [] } }
+    });
+    orchestrator.__addAgent({
+      id: 'working-1', name: 'Working Agent',
+      currentModel: 'llama3.2:3b',
+      lastActivity: new Date('2026-05-30T18:00:00Z').toISOString(),
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'find the working one' });
+      // Even though "Broken Agent" is more recent, its model can't
+      // resolve, so we keep scanning and find "Working Agent".
+      expect(r.body.usedFallbackModel.to).toBe('llama3.2:3b');
+      expect(r.body.usedFallbackModel.referenceAgent).toBe('Working Agent');
+    } finally { server.close(); }
+  });
+
+  it('returns 503 when defaultModel is broken AND no fallback candidate works', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({
+        unresolvableModels: ['anthropic-sonnet', 'also-broken'],
+        ollamaModels: []
+      })
+    });
+    orchestrator.__addAgent({
+      id: 'other', name: 'Other Agent', currentModel: 'also-broken',
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'x' });
+      expect(r.status).toBe(503);
+      expect(r.body.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
+      const createCalls = orchestrator.__calls.filter(c => c.action === 'create_agent');
+      expect(createCalls).toEqual([]);
+    } finally { server.close(); }
+  });
+
+  it('does NOT fall back when an existing Quick Send agent already references a broken model', async () => {
+    // Once the agent exists, the endpoint never mutates it — the
+    // user fixes the model explicitly in the OnBuzz UI. This is the
+    // invariant the previous spec was emphatic about.
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'test-model',
+      aiService: makeFakeAiService({ unresolvableModels: ['anthropic-sonnet'] })
+    });
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send',
+      currentModel: 'anthropic-sonnet',
+      conversations: { full: { messages: [] } }
+    });
+    orchestrator.__addAgent({
+      id: 'working-1', name: 'Working Agent',
+      currentModel: 'llama3.2:3b',
+      lastActivity: new Date('2026-05-30T19:00:00Z').toISOString(),
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'x' });
+      expect(r.status).toBe(503);
+      expect(r.body.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
+      // No CREATE_AGENT (one exists) and no UPDATE_AGENT (we never
+      // mutate an existing agent's model).
+      const actionsOther = orchestrator.__calls
+        .map(c => c.action)
+        .filter(a => a !== 'send_message');
+      expect(actionsOther).toEqual([]);
     } finally { server.close(); }
   });
 });

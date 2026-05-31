@@ -204,6 +204,41 @@ function hasLocalOllamaModels(aiService) {
   }
 }
 
+// Pick a creation-time fallback model from the agent pool. Used only
+// when the configured defaultModel pre-flights as broken AND no Quick
+// Send agent has been created yet — addresses the fresh-install case
+// where system.defaultModel is something the user has no provider for
+// (e.g. anthropic-sonnet on an Ollama-only setup).
+//
+// Strictly creation-time. Once the Quick Send agent exists, the
+// endpoint never auto-mutates its model — that path still fails with
+// the structured 503 so the user fixes the agent explicitly in the
+// OnBuzz UI.
+//
+// Returns the first candidate (sorted by lastActivity desc) whose
+// model resolves cleanly, or null if no candidate works.
+function pickFallbackPoolModel(pool, aiService) {
+  if (!Array.isArray(pool) || pool.length === 0) return null;
+  const candidates = pool
+    .filter((a) => a && a.name && a.name !== QUICK_SEND_AGENT_NAME)
+    .map((a) => ({
+      name: a.name,
+      model: a.currentModel || a.preferredModel || null,
+      lastActivity: a.lastActivity || null
+    }))
+    .filter((c) => c.model)
+    .sort((a, b) => {
+      const ta = new Date(a.lastActivity || 0).getTime();
+      const tb = new Date(b.lastActivity || 0).getTime();
+      return tb - ta;
+    });
+  for (const c of candidates) {
+    const check = preflightCheckModel(aiService, c.model);
+    if (check.ok) return c;
+  }
+  return null;
+}
+
 // Pre-flight a model id against the live provider registry. Returns
 // { ok: true } when the model resolves cleanly, or a structured error
 // payload (code + message + suggestion) otherwise.
@@ -352,10 +387,39 @@ export function registerQuickSendRoutes(app, deps = {}) {
       //      Anthropic, removed the key later, and now the saved
       //      agent's currentModel is anthropic-sonnet) — fail BEFORE
       //      queuing the message, since dispatch would just throw.
-      const targetModel = quickSendAgent
+      let targetModel = quickSendAgent
         ? (quickSendAgent.currentModel || quickSendAgent.preferredModel || null)
         : (orchestrator.config?.system?.defaultModel || null);
-      const preflight = preflightCheckModel(orchestrator.aiService, targetModel);
+      let preflight = preflightCheckModel(orchestrator.aiService, targetModel);
+
+      // Creation-time-only fallback. When we're about to create the
+      // Quick Send agent and the configured default is broken, look at
+      // the pool for a working model from another agent. This rescues
+      // the common fresh-install case (system.defaultModel pointing at
+      // anthropic-sonnet on an Ollama-only machine) without making the
+      // user dig through Settings before their first send. We never
+      // auto-mutate an EXISTING Quick Send agent — that path stays a
+      // structured 503 so the user explicitly picks a new model.
+      let usedFallbackModel = null;
+      if (!preflight.ok && !quickSendAgent) {
+        const fallback = pickFallbackPoolModel(pool, orchestrator.aiService);
+        if (fallback) {
+          logger.info('Quick Send: falling back to a working pool model', {
+            intendedModel: targetModel,
+            fallbackModel: fallback.model,
+            referenceAgent: fallback.name
+          });
+          usedFallbackModel = {
+            from: targetModel,
+            to: fallback.model,
+            referenceAgent: fallback.name,
+            reason: preflight.code
+          };
+          targetModel = fallback.model;
+          preflight = { ok: true };
+        }
+      }
+
       if (!preflight.ok) {
         return res.status(STATUS.SERVICE_UNAVAILABLE).json({
           ok: false,
@@ -372,7 +436,10 @@ export function registerQuickSendRoutes(app, deps = {}) {
       }
 
       if (!quickSendAgent) {
-        logger.info('Quick Send: creating agent', { model: targetModel });
+        logger.info('Quick Send: creating agent', {
+          model: targetModel,
+          ...(usedFallbackModel ? { fallbackFrom: usedFallbackModel.from } : {})
+        });
         const createResp = await orchestrator.processRequest({
           interface: IFACES.WEB,
           sessionId,
@@ -435,7 +502,13 @@ export function registerQuickSendRoutes(app, deps = {}) {
       return res.json({
         ok: true,
         agentId: quickSendAgent.id,
-        firstMessageIndex
+        firstMessageIndex,
+        // When the creation-time fallback fired, surface the swap to
+        // the client. The side panel can use this to show a one-time
+        // toast/banner ("Quick Send is using llama3.2:3b because
+        // anthropic-sonnet has no working provider"), or just ignore
+        // it. Null on normal sends.
+        usedFallbackModel
       });
     } catch (error) {
       try { logger.error('Quick-send API error', { error: error.message }); } catch (_) {}
