@@ -65,67 +65,58 @@ const defaultFileOps = {
 const QUICK_SEND_AGENT_NAME = 'Quick Send';
 
 /**
- * Scan BOTH the in-memory agent pool AND the persisted agent index
- * for the most-recently-active non-Quick-Send agent whose model
- * preflights cleanly. Returns `{ name, model, source }` or null.
+ * Single source of truth for "find a working non-Quick-Send model
+ * across pool + disk". Used by:
+ *   - the cleanup helper's recreate-when-all-broken decision
+ *   - the POST handler's creation-time fallback
  *
- * Disk-aware because OnBuzz only auto-loads persisted agents into the
- * pool when the UI session fires RESUME_SESSION. When the extension
- * is the first thing that hits the server after boot, the in-memory
- * pool is still empty even though the user has plenty of working
- * agents on disk — pool-only fallback would find nothing and the
- * extension would 503 on a working Ollama-only setup.
+ * The in-memory pool is empty until a UI session fires RESUME_SESSION,
+ * so consulting only the pool fails the extension-first scenario
+ * (fresh boot, no UI opened, extension is the first thing to call).
+ * Reading the disk index recovers that case.
  *
- * Pool entries win over disk entries on id collision (pool carries
- * the most up-to-date currentModel/lastActivity).
- *
- * @param {Object} args
- * @param {Array}    args.pool            - listActiveAgents() result
- * @param {Object}   args.diskIndex       - loadAgentIndex() result
- * @param {Object}   args.aiService
- * @param {Function} args.preflight       - (aiService, model) => { ok }
- * @returns {{ name: string, model: string, source: 'pool'|'disk' } | null}
+ * @param {Object} opts
+ * @param {Array}  opts.pool       - agentPool.listActiveAgents() result
+ * @param {Object} opts.diskIndex  - stateManager.loadAgentIndex() result
+ * @param {Object} opts.aiService
+ * @param {Function} opts.preflight - (aiService, modelId) => { ok, ... }
+ * @returns {{ name: string, model: string, lastActivity: string|null, source: 'pool'|'disk' } | null}
  */
 export function findWorkingFallbackCandidate({ pool, diskIndex, aiService, preflight }) {
-  const byId = new Map();
-
-  for (const [id, v] of Object.entries(diskIndex || {})) {
-    if (!id || id === 'undefined') continue;
-    if (!v || v.name === QUICK_SEND_AGENT_NAME) continue;
-    if (!v.model) continue;
-    byId.set(id, {
-      id,
-      name: v.name,
-      model: v.model,
-      lastActivity: v.lastActivity || null,
-      source: 'disk'
-    });
-  }
-  for (const a of pool || []) {
-    if (!a || a.name === QUICK_SEND_AGENT_NAME) continue;
-    const model = a.currentModel || a.preferredModel || null;
-    if (!model) continue;
-    byId.set(a.id, {
-      id: a.id,
+  const fromPool = (pool || [])
+    .filter((a) => a && a.name && a.name !== QUICK_SEND_AGENT_NAME)
+    .map((a) => ({
       name: a.name,
-      model,
+      model: a.currentModel || a.preferredModel || null,
       lastActivity: a.lastActivity || null,
       source: 'pool'
+    }));
+
+  const fromDisk = Object.entries(diskIndex || {})
+    .filter(([id, v]) => id && id !== 'undefined' && v && v.name && v.name !== QUICK_SEND_AGENT_NAME)
+    .map(([, v]) => ({
+      name: v.name,
+      model: v.model || null,
+      lastActivity: v.lastActivity || null,
+      source: 'disk'
+    }));
+
+  // De-dupe by name; pool wins because currentModel reflects the live
+  // session, which can differ from the index's snapshotted model.
+  const byName = new Map();
+  for (const c of fromDisk) byName.set(c.name, c);
+  for (const c of fromPool) byName.set(c.name, c);
+
+  const candidates = Array.from(byName.values())
+    .filter((c) => c.model)
+    .sort((a, b) => {
+      const ta = new Date(a.lastActivity || 0).getTime();
+      const tb = new Date(b.lastActivity || 0).getTime();
+      return tb - ta;
     });
-  }
 
-  const sorted = Array.from(byId.values()).sort((a, b) => {
-    const ta = new Date(a.lastActivity || 0).getTime();
-    const tb = new Date(b.lastActivity || 0).getTime();
-    if (ta !== tb) return tb - ta;
-    if (a.source !== b.source) return a.source === 'pool' ? -1 : 1;
-    return 0;
-  });
-
-  for (const c of sorted) {
-    if (preflight(aiService, c.model).ok) {
-      return { name: c.name, model: c.model, source: c.source };
-    }
+  for (const c of candidates) {
+    if (preflight(aiService, c.model).ok) return c;
   }
   return null;
 }
@@ -240,10 +231,14 @@ export async function consolidateQuickSendAgents({
   // If no Quick Send candidate works AND a non-Quick-Send agent's
   // model does (in pool OR on disk), the cleanest fix is to remove
   // ALL Quick Send entries and let the create-with-fallback path
-  // build a fresh one. The disk-aware check matters here: when the
-  // extension is the first thing to hit the server after boot, the
-  // in-memory pool is empty but the disk index may still carry a
-  // working agent we can crib a model from.
+  // build a fresh one. The caller is responsible for that branch;
+  // we just signal it via recreateRequested.
+  //
+  // Disk-awareness matters here: when the extension is the first
+  // thing to hit the server after boot, the in-memory pool is empty
+  // even though the user's working Ollama agents are sitting in
+  // agent-index.json. A pool-only check would miss the rescue
+  // candidate and report 503 instead of self-healing.
   let recreateRequested = false;
   if (!anyCandidateWorks) {
     const fallback = findWorkingFallbackCandidate({
@@ -255,6 +250,11 @@ export async function consolidateQuickSendAgents({
     if (fallback) {
       recreateRequested = true;
       canonical = null;
+      log.info('Quick Send cleanup: recreate-with-fallback picked', {
+        fallbackModel: fallback.model,
+        referenceAgent: fallback.name,
+        source: fallback.source
+      });
     }
   }
 

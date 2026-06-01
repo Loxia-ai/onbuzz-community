@@ -937,6 +937,43 @@ describe('POST /api/chat/quick-send — creation-time fallback', () => {
     } finally { server.close(); }
   });
 
+  it('falls back to a DISK-ONLY working agent when the pool is empty (extension-first boot)', async () => {
+    // Mirrors the user's actual scenario: server just booted via
+    // `npm run dev`, no UI session yet so the in-memory pool is empty,
+    // but agent-index.json has a working Ollama agent. Without the
+    // disk-aware fallback this would 503.
+    const orchestrator = makeFakeOrchestrator({
+      defaultModel: 'anthropic-sonnet',
+      aiService: makeFakeAiService({ unresolvableModels: ['anthropic-sonnet'] }),
+      stateManager: makeFakeStateManagerForRoutes({
+        index: {
+          'ollama-research-1': {
+            name: 'Research Agent',
+            stateFile: 'agents/agent-ollama-research-1-state.json',
+            conversationsFile: 'agents/agent-ollama-research-1-conversations.json',
+            model: 'llama3.2:3b',
+            lastActivity: '2026-05-25T10:00:00Z',
+            status: 'active',
+            capabilities: []
+          }
+        }
+      })
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { selected_text: 'fresh boot extension send' });
+      expect(r.status).toBe(200);
+      expect(r.body.usedFallbackModel).toMatchObject({
+        from: 'anthropic-sonnet',
+        to: 'llama3.2:3b',
+        referenceAgent: 'Research Agent',
+        reason: 'MODEL_PROVIDER_UNAVAILABLE'
+      });
+      const createCall = orchestrator.__calls.find(c => c.action === 'create_agent');
+      expect(createCall.payload.model).toBe('llama3.2:3b');
+    } finally { server.close(); }
+  });
+
   it('picks the most-recently-active candidate when multiple agents are available', async () => {
     const orchestrator = makeFakeOrchestrator({
       defaultModel: 'anthropic-sonnet',
@@ -1318,43 +1355,6 @@ describe('POST /api/chat/quick-send — duplicate cleanup integration', () => {
       await send(baseUrl, { selected_text: 'two' });
       const deleted = orchestrator.__calls.filter(c => c.action === 'delete_agent');
       expect(deleted).toEqual([]);
-    } finally { server.close(); }
-  });
-
-  it('falls back to a DISK-only non-Quick-Send model when the pool is empty (extension-first boot)', async () => {
-    // The motivating scenario for the disk-aware fallback. The user
-    // runs `npm run dev` and immediately uses the extension — no UI
-    // session has loaded persisted agents into the pool, so the pool
-    // is empty. The configured default model is broken (anthropic-
-    // sonnet with no key), but the user has working Ollama agents on
-    // disk. Cleanup must still let the create-with-fallback path
-    // succeed.
-    const stateMgr = makeFakeStateManagerForRoutes({
-      index: diskIndex({
-        'research-1': { name: 'Research', model: 'llama3.2:3b', lastActivity: '2026-05-30T22:00:00Z' }
-      })
-    });
-    const orchestrator = makeFakeOrchestrator({
-      defaultModel: 'anthropic-sonnet',
-      aiService: makeFakeAiService({
-        unresolvableModels: ['anthropic-sonnet'],
-        ollamaModels: ['llama3.2:3b']
-      }),
-      stateManager: stateMgr
-    });
-    // No Quick Send or Research in pool — both live on disk only.
-
-    const { server, baseUrl } = await startApp({ orchestrator });
-    try {
-      const r = await send(baseUrl, { selected_text: 'extension-first scenario' });
-      expect(r.status).toBe(200);
-      expect(r.body.usedFallbackModel).toMatchObject({
-        from: 'anthropic-sonnet',
-        to: 'llama3.2:3b',
-        referenceAgent: 'Research'
-      });
-      const createCall = orchestrator.__calls.find(c => c.action === 'create_agent');
-      expect(createCall.payload.model).toBe('llama3.2:3b');
     } finally { server.close(); }
   });
 

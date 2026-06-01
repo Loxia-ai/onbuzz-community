@@ -222,18 +222,15 @@ function hasLocalOllamaModels(aiService) {
 // OnBuzz UI.
 //
 // Delegates to findWorkingFallbackCandidate (in quickSendCleanup.js)
-// which is the single source of truth for "find a working non-Quick-
-// Send model across pool + disk" — the cleanup helper uses the same
-// function for its recreate-when-all-broken decision.
+// which is the single source of truth used by both the cleanup's
+// recreate-when-all-broken decision and this route's fallback.
 async function pickFallbackPoolModel(orchestrator, pool, aiService) {
-  if (!orchestrator?.stateManager) {
-    // Fall back to pool-only when stateManager isn't reachable.
-    return pickFallbackPoolModelLegacy(pool, aiService);
-  }
   let diskIndex = {};
-  try {
-    diskIndex = (await orchestrator.stateManager.loadAgentIndex(process.cwd())) || {};
-  } catch (_) { /* ignore — pool-only still works */ }
+  if (orchestrator?.stateManager?.loadAgentIndex) {
+    try {
+      diskIndex = (await orchestrator.stateManager.loadAgentIndex(process.cwd())) || {};
+    } catch (_) { /* pool-only still works */ }
+  }
   const { findWorkingFallbackCandidate } = await import('./quickSendCleanup.js');
   return findWorkingFallbackCandidate({
     pool: pool || [],
@@ -241,30 +238,6 @@ async function pickFallbackPoolModel(orchestrator, pool, aiService) {
     aiService,
     preflight: preflightCheckModel
   });
-}
-
-// Pool-only variant kept as a safe fallback for environments where
-// the orchestrator isn't fully wired (e.g. some test rigs).
-function pickFallbackPoolModelLegacy(pool, aiService) {
-  if (!Array.isArray(pool) || pool.length === 0) return null;
-  const candidates = pool
-    .filter((a) => a && a.name && a.name !== QUICK_SEND_AGENT_NAME)
-    .map((a) => ({
-      name: a.name,
-      model: a.currentModel || a.preferredModel || null,
-      lastActivity: a.lastActivity || null
-    }))
-    .filter((c) => c.model)
-    .sort((a, b) => {
-      const ta = new Date(a.lastActivity || 0).getTime();
-      const tb = new Date(b.lastActivity || 0).getTime();
-      return tb - ta;
-    });
-  for (const c of candidates) {
-    const check = preflightCheckModel(aiService, c.model);
-    if (check.ok) return c;
-  }
-  return null;
 }
 
 // Pre-flight a model id against the live provider registry. Returns
