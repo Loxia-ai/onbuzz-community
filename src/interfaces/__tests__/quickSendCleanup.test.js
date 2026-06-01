@@ -398,6 +398,37 @@ describe('consolidateQuickSendAgents — duplicates', () => {
     expect(orch.__peekPool().some(a => a.id === 'research-1')).toBe(true);
   });
 
+  it('removes the disk-only canonical AND signals recreate when hydration into the pool fails', async () => {
+    // agentPool.resumeAgent / restoreAgent is broken in this codebase
+    // (two methods named resumeAgent, the second shadowing the first).
+    // When the canonical only exists on disk and we can't bring it
+    // into the pool, leaving it in place causes the POST handler to
+    // create a duplicate via the fallback path. The cleanup must
+    // therefore delete the disk entry too and signal recreate so the
+    // POST handler builds exactly one fresh agent.
+    const stateMgr = makeFakeStateManager({
+      index: {
+        'qs-disk-only': indexEntry({ id: 'qs-disk-only', model: 'good-model',
+                                     lastActivity: '2026-05-30T20:00:00Z' })
+      }
+    });
+    // No file in fileOps → readJson throws → resume fails → cleanup
+    // must clean it up rather than return canonical: null silently.
+    const fileOps = makeFakeFileOps({ files: {} });
+    const orch = makeFakeOrchestrator({ pool: [], stateManager: stateMgr });
+    const result = await consolidateQuickSendAgents({
+      orchestrator: orch, constants: COMMON_CONSTANTS, logger: makeLogger(),
+      sessionId: SESSION_ID, projectDir: '/proj',
+      preflight: makeFakePreflight(),
+      fileOps
+    });
+    expect(result.canonical).toBeNull();
+    expect(result.recreateRequested).toBe(true);
+    expect(result.removed.map(r => r.id)).toEqual(['qs-disk-only']);
+    // Disk entry is gone — no duplicate-on-next-POST.
+    expect(stateMgr.__peekIndex()['qs-disk-only']).toBeUndefined();
+  });
+
   it('requests RECREATE when only a DISK-ONLY non-Quick-Send agent has a working model (extension-first boot)', async () => {
     // The scenario this commit closes: server just booted, no UI
     // session yet, pool is empty. The only persisted non-Quick-Send
@@ -440,19 +471,28 @@ describe('consolidateQuickSendAgents — safety invariants', () => {
         'quick-send-look-alike': indexEntry({ id: 'quick-send-look-alike', name: 'quick send', model: 'good-model' }) // wrong case
       }
     });
+    // Make qs-2's stateFile available so the canonical can be
+    // resumed and only the duplicate (qs-1) is removed. Keeps the
+    // test focused on the safety invariant: non-Quick-Send entries
+    // are untouched regardless of Quick Send churn.
+    const fileOps = makeFakeFileOps({
+      files: {
+        [stateFilePath('qs-2')]: { id: 'qs-2', name: QUICK_SEND, currentModel: 'good-model' }
+      }
+    });
     const orch = makeFakeOrchestrator({ pool: [], stateManager: stateMgr });
     await consolidateQuickSendAgents({
       orchestrator: orch, constants: COMMON_CONSTANTS, logger: makeLogger(),
       sessionId: SESSION_ID, projectDir: '/proj',
       preflight: makeFakePreflight(),
-      fileOps: makeFakeFileOps()
+      fileOps
     });
-    // Only qs-1 was removed (qs-2 is canonical).
-    expect(stateMgr.removeFromAgentIndex.mock.calls.map(c => c[0])).toEqual(['qs-1']);
-    // The look-alike with lowercase name is NOT a match.
-    expect(stateMgr.__peekIndex()['quick-send-look-alike']).toBeDefined();
-    expect(stateMgr.__peekIndex()['research-1']).toBeDefined();
-    expect(stateMgr.__peekIndex()['planner-1']).toBeDefined();
+    // No removeFromAgentIndex call ever targeted a non-Quick-Send id.
+    const removedIds = stateMgr.removeFromAgentIndex.mock.calls.map(c => c[0]);
+    for (const safe of ['research-1', 'planner-1', 'quick-send-look-alike']) {
+      expect(removedIds).not.toContain(safe);
+      expect(stateMgr.__peekIndex()[safe]).toBeDefined();
+    }
   });
 
   it('is idempotent — second run sees one Quick Send and does nothing', async () => {

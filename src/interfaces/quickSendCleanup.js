@@ -332,6 +332,21 @@ export async function consolidateQuickSendAgents({
 
   // ── 6. If the canonical is disk-only, hydrate it into the pool
   //     so the POST handler can use it like a normal pool agent. ─
+  //
+  // If hydration fails (the agentPool's resumeAgent / restoreAgent
+  // API in this codebase has a duplicate method shadowing the
+  // load-from-disk variant — see agentPool.js:655 vs :789), we
+  // can't simply leave the disk-only canonical in place: the POST
+  // handler would create a NEW Quick Send via the fallback path,
+  // leaving a duplicate that the next cleanup pass would then
+  // remove. To avoid that wasted churn we delete the disk-only
+  // canonical here too and signal recreateRequested, so the POST
+  // handler builds a single fresh agent.
+  //
+  // Trade-off: a disk-only canonical's prior conversation history
+  // is dropped. Acceptable for Quick Send (short, source-grounded
+  // chats); the alternative is the duplicate-on-first-send churn
+  // we observed in practice.
   let canonicalAgent = canonical.poolAgent;
   if (!canonicalAgent && canonical.stateFile) {
     try {
@@ -342,11 +357,37 @@ export async function consolidateQuickSendAgents({
         id: canonical.id, model: canonicalAgent?.currentModel || canonical.model
       });
     } catch (err) {
-      log.warn('Quick Send cleanup: failed to resume canonical from disk', {
+      log.warn('Quick Send cleanup: canonical is disk-only and could not be resumed — removing it and requesting recreate', {
         id: canonical.id, error: err.message
       });
-      // Best-effort. Caller will fall back to the create path, which
-      // is fine — the cleanup itself still removed the duplicates.
+      // Delete the unrecoverable disk entry so we don't accumulate
+      // it. Best-effort; failures during this delete are warned.
+      try {
+        await stateMgr.removeFromAgentIndex(canonical.id, projectDir);
+        const stateDir = stateMgr.getStateDir(projectDir);
+        for (const rel of [canonical.stateFile, canonical.conversationsFile]) {
+          if (!rel) continue;
+          try {
+            await fileOps.unlink(path.join(stateDir, rel));
+          } catch (unlinkErr) {
+            if (unlinkErr.code !== 'ENOENT') {
+              log.warn('Quick Send cleanup: unlink failed for unresumable canonical', {
+                id: canonical.id, file: rel, error: unlinkErr.message
+              });
+            }
+          }
+        }
+      } catch (cleanupErr) {
+        log.warn('Quick Send cleanup: failed to delete unresumable canonical from disk', {
+          id: canonical.id, error: cleanupErr.message
+        });
+      }
+      removed.push({
+        id: canonical.id,
+        source: 'disk-only',
+        model: canonical.model
+      });
+      return { canonical: null, removed, recreateRequested: true };
     }
   }
 
