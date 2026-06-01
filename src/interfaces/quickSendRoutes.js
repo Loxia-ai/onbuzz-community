@@ -204,20 +204,48 @@ function hasLocalOllamaModels(aiService) {
   }
 }
 
-// Pick a creation-time fallback model from the agent pool. Used only
-// when the configured defaultModel pre-flights as broken AND no Quick
-// Send agent has been created yet — addresses the fresh-install case
-// where system.defaultModel is something the user has no provider for
-// (e.g. anthropic-sonnet on an Ollama-only setup).
+// Pick a creation-time fallback model from anywhere we can find one.
+// Used only when the configured defaultModel pre-flights as broken
+// AND no Quick Send agent has been created yet — addresses the
+// fresh-install case where system.defaultModel is something the user
+// has no provider for (e.g. anthropic-sonnet on an Ollama-only setup).
+//
+// Disk-aware: also consults the persisted agent index, because the
+// in-memory pool is empty until a UI session fires RESUME_SESSION.
+// If the extension is the first thing to hit the server after boot,
+// pool-only fallback would find nothing even though the user has a
+// working Ollama agent persisted on disk.
 //
 // Strictly creation-time. Once the Quick Send agent exists, the
 // endpoint never auto-mutates its model — that path still fails with
 // the structured 503 so the user fixes the agent explicitly in the
 // OnBuzz UI.
 //
-// Returns the first candidate (sorted by lastActivity desc) whose
-// model resolves cleanly, or null if no candidate works.
-function pickFallbackPoolModel(pool, aiService) {
+// Delegates to findWorkingFallbackCandidate (in quickSendCleanup.js)
+// which is the single source of truth for "find a working non-Quick-
+// Send model across pool + disk" — the cleanup helper uses the same
+// function for its recreate-when-all-broken decision.
+async function pickFallbackPoolModel(orchestrator, pool, aiService) {
+  if (!orchestrator?.stateManager) {
+    // Fall back to pool-only when stateManager isn't reachable.
+    return pickFallbackPoolModelLegacy(pool, aiService);
+  }
+  let diskIndex = {};
+  try {
+    diskIndex = (await orchestrator.stateManager.loadAgentIndex(process.cwd())) || {};
+  } catch (_) { /* ignore — pool-only still works */ }
+  const { findWorkingFallbackCandidate } = await import('./quickSendCleanup.js');
+  return findWorkingFallbackCandidate({
+    pool: pool || [],
+    diskIndex,
+    aiService,
+    preflight: preflightCheckModel
+  });
+}
+
+// Pool-only variant kept as a safe fallback for environments where
+// the orchestrator isn't fully wired (e.g. some test rigs).
+function pickFallbackPoolModelLegacy(pool, aiService) {
   if (!Array.isArray(pool) || pool.length === 0) return null;
   const candidates = pool
     .filter((a) => a && a.name && a.name !== QUICK_SEND_AGENT_NAME)
@@ -461,7 +489,7 @@ export function registerQuickSendRoutes(app, deps = {}) {
       // structured 503 so the user explicitly picks a new model.
       let usedFallbackModel = null;
       if (!preflight.ok && !quickSendAgent) {
-        const fallback = pickFallbackPoolModel(pool, orchestrator.aiService);
+        const fallback = await pickFallbackPoolModel(orchestrator, pool, orchestrator.aiService);
         if (fallback) {
           logger.info('Quick Send: falling back to a working pool model', {
             intendedModel: targetModel,

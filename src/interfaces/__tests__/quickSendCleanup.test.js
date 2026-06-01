@@ -13,7 +13,10 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { consolidateQuickSendAgents } from '../quickSendCleanup.js';
+import {
+  consolidateQuickSendAgents,
+  findWorkingFallbackCandidate
+} from '../quickSendCleanup.js';
 
 const QUICK_SEND = 'Quick Send';
 const SESSION_ID = 'extension-quick-send';
@@ -534,3 +537,123 @@ describe('consolidateQuickSendAgents — safety invariants', () => {
     expect(result).toEqual({ canonical: null, removed: [], recreateRequested: false });
   });
 });
+
+// ────────────────────────────────────────────────────────────────
+// findWorkingFallbackCandidate — disk-aware fallback discovery
+// ────────────────────────────────────────────────────────────────
+
+describe('findWorkingFallbackCandidate', () => {
+  const ai = {};
+  it('returns null when pool and disk are both empty', () => {
+    expect(findWorkingFallbackCandidate({
+      pool: [], diskIndex: {}, aiService: ai, preflight: makeFakePreflight()
+    })).toBeNull();
+  });
+
+  it('finds a working pool candidate when pool has one', () => {
+    const result = findWorkingFallbackCandidate({
+      pool: [
+        { id: 'r-1', name: 'Research', currentModel: 'llama3', lastActivity: '2026-05-30T20:00:00Z' }
+      ],
+      diskIndex: {},
+      aiService: ai,
+      preflight: makeFakePreflight()
+    });
+    expect(result).toEqual({ name: 'Research', model: 'llama3', source: 'pool' });
+  });
+
+  it('finds a working DISK candidate when the pool is empty', () => {
+    // This is the case OnBuzz hits when the extension is the first
+    // thing to touch the server after boot. The pool is empty until
+    // RESUME_SESSION fires, but the disk index already carries the
+    // user's working agents.
+    const result = findWorkingFallbackCandidate({
+      pool: [],
+      diskIndex: {
+        'research-1': { name: 'Research', model: 'llama3', lastActivity: '2026-05-30T20:00:00Z' },
+        'planner':    { name: 'Planner',  model: 'qwen2',  lastActivity: '2026-05-30T19:00:00Z' }
+      },
+      aiService: ai,
+      preflight: makeFakePreflight()
+    });
+    expect(result).toEqual({ name: 'Research', model: 'llama3', source: 'disk' });
+  });
+
+  it('skips broken candidates and finds the most recent working one (pool or disk)', () => {
+    const result = findWorkingFallbackCandidate({
+      pool: [
+        { id: 'broken-pool', name: 'Broken', currentModel: 'broken-model',
+          lastActivity: '2026-05-30T22:00:00Z' }
+      ],
+      diskIndex: {
+        'broken-disk': { name: 'AlsoBroken', model: 'broken-disk-model',
+                         lastActivity: '2026-05-30T21:00:00Z' },
+        'good-disk':   { name: 'Good',        model: 'good-model',
+                         lastActivity: '2026-05-30T18:00:00Z' }
+      },
+      aiService: ai,
+      preflight: makeFakePreflight({ unresolvable: ['broken-model', 'broken-disk-model'] })
+    });
+    expect(result).toEqual({ name: 'Good', model: 'good-model', source: 'disk' });
+  });
+
+  it('NEVER returns a Quick Send agent as the fallback (pool or disk)', () => {
+    const result = findWorkingFallbackCandidate({
+      pool: [
+        { id: 'qs-pool', name: 'Quick Send', currentModel: 'llama3', lastActivity: '2026-05-30T22:00:00Z' }
+      ],
+      diskIndex: {
+        'qs-disk':     { name: 'Quick Send', model: 'llama3', lastActivity: '2026-05-30T21:00:00Z' }
+      },
+      aiService: ai,
+      preflight: makeFakePreflight()
+    });
+    expect(result).toBeNull();
+  });
+
+  it('pool entry wins over disk entry on id collision', () => {
+    // Disk has stale `model = old-model`; pool has fresh `currentModel = new-model`.
+    const result = findWorkingFallbackCandidate({
+      pool: [
+        { id: 'r-1', name: 'Research', currentModel: 'new-model', lastActivity: '2026-05-30T20:00:00Z' }
+      ],
+      diskIndex: {
+        'r-1': { name: 'Research', model: 'old-model', lastActivity: '2026-05-30T19:00:00Z' }
+      },
+      aiService: ai,
+      preflight: makeFakePreflight({ unresolvable: ['old-model'] })
+    });
+    expect(result).toEqual({ name: 'Research', model: 'new-model', source: 'pool' });
+  });
+});
+
+describe('consolidateQuickSendAgents — disk-aware recreate path', () => {
+  it('requests RECREATE when all Quick Send candidates are broken AND a working DISK fallback exists (pool empty)', async () => {
+    // The killer scenario: extension is the first thing to hit the
+    // server after boot, no UI session has fired RESUME_SESSION,
+    // pool is empty, but the disk index carries working Ollama agents
+    // plus a broken Quick Send. Cleanup should still self-heal.
+    const stateMgr = makeFakeStateManager({
+      index: {
+        'qs-broken':   indexEntry({ id: 'qs-broken',   model: 'broken-model', lastActivity: '2026-05-30T20:00:00Z' }),
+        'research-1':  indexEntry({ id: 'research-1',  name: 'Research', model: 'llama3', lastActivity: '2026-05-30T22:00:00Z' })
+      }
+    });
+    const orch = makeFakeOrchestrator({ pool: [], stateManager: stateMgr });
+    const result = await consolidateQuickSendAgents({
+      orchestrator: orch,
+      constants: COMMON_CONSTANTS,
+      logger: makeLogger(),
+      sessionId: SESSION_ID,
+      projectDir: '/proj',
+      preflight: makeFakePreflight({ unresolvable: ['broken-model'] }),
+      fileOps: makeFakeFileOps()
+    });
+    expect(result.recreateRequested).toBe(true);
+    expect(result.canonical).toBeNull();
+    expect(result.removed.map(r => r.id)).toEqual(['qs-broken']);
+    // Research is untouched on disk.
+    expect(stateMgr.__peekIndex()['research-1']).toBeDefined();
+  });
+});
+
