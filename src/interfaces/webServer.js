@@ -31,6 +31,15 @@ import { getVisualEditorServer, getVisualEditorPort, getVisualEditorBaseUrl, set
 import { getCredentialVault } from '../services/credentialVault.js';
 import { getUserDataPaths } from '../utilities/userDataDir.js';
 import { projectActiveRuns } from '../utilities/flowRunFilters.js';
+import { verifyExtensionToken } from '../services/extensionToken.js';
+// Quick Send routes (browser-extension flow) live in their own module
+// so they can be tested against the real production wiring. The module
+// owns the agent name + seed + message composer; webServer.js only
+// wires the production dependencies into it.
+import {
+  registerQuickSendRoutes,
+  EXTENSION_SESSION_ID
+} from './quickSendRoutes.js';
 
 // Connect visual editor server to bridge (enables element selection forwarding)
 setBridgeGetter(getVisualEditorBridge);
@@ -1015,7 +1024,18 @@ class WebServer {
         });
       }
     });
-    
+
+    // Browser-extension Quick Send routes — extracted to a dedicated
+    // module so they can be tested against the real production wiring.
+    // See src/interfaces/quickSendRoutes.js for the handlers, the agent
+    // seed, and the message composer.
+    registerQuickSendRoutes(this.app, {
+      getOrchestrator: () => this.orchestrator,
+      verifyToken: verifyExtensionToken,
+      logger: this.logger,
+      constants: { INTERFACE_TYPES, ORCHESTRATOR_ACTIONS, HTTP_STATUS }
+    });
+
     // File operations
     this.app.get('/api/files', async (req, res) => {
       try {
@@ -5188,15 +5208,26 @@ class WebServer {
    * @private
    */
   broadcastToSession(sessionId, message) {
+    // The browser extension talks to the server over REST polling and
+    // never opens a WebSocket — see EXTENSION_SESSION_ID at the top
+    // of this file. That session has zero connections by design;
+    // broadcasting to it is a no-op. Returning here keeps the WS
+    // layer clean and silent for the extension's polling-only flow
+    // instead of logging a "No connections for session" warning and
+    // fanning out to every other connected client.
+    if (sessionId === EXTENSION_SESSION_ID) {
+      return;
+    }
+
     const sessionConnections = Array.from(this.connections.values())
       .filter(conn => conn.sessionId === sessionId);
-    
+
     // If no connections found for this session, try broadcasting to all connections
     // This handles cases where session IDs might be mismatched
     let allConnections = [];
     if (sessionConnections.length === 0) {
       allConnections = Array.from(this.connections.values());
-      
+
       this.logger?.warn('🔄 No connections for session, trying all connections:', {
         targetSessionId: sessionId,
         totalConnections: this.connections.size,

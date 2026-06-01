@@ -426,7 +426,7 @@ class MessageProcessor {
           });
           continue;
         }
-        
+
         this.logger.info(`Executing tool: ${command.toolId}`, {
           agentId: context.agentId,
           isAsync: command.isAsync

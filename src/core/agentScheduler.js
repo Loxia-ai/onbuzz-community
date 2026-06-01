@@ -1896,7 +1896,7 @@ class AgentScheduler {
       }
 
       // After compaction, retrieve messages from AgentPool (will use compacted if available)
-      const messagesToSend = await this.agentPool.getMessagesForAI(agentId, targetModel);
+      let messagesToSend = await this.agentPool.getMessagesForAI(agentId, targetModel);
 
       // Inject TaskManager instructions for AGENT mode
       let enhancedSystemPrompt = agent.systemPrompt;
