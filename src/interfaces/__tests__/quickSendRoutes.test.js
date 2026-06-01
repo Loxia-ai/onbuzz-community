@@ -1390,3 +1390,218 @@ describe('POST /api/chat/quick-send — duplicate cleanup integration', () => {
     } finally { server.close(); }
   });
 });
+
+// ────────────────────────────────────────────────────────────────
+// Model picker endpoints — GET /agent, GET /models, POST /model
+// ────────────────────────────────────────────────────────────────
+
+describe('GET /api/chat/quick-send/agent', () => {
+  const get = (baseUrl, headers = { 'X-OnBuzz-Token': VALID_TOKEN }) =>
+    http(`${baseUrl}/api/chat/quick-send/agent`, { headers });
+
+  it('401 when token is missing', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await get(baseUrl, {});
+      expect(r.status).toBe(401);
+    } finally { server.close(); }
+  });
+
+  it('returns { agent: null } when no Quick Send exists in pool or on disk', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      stateManager: makeFakeStateManagerForRoutes({ index: {} })
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await get(baseUrl);
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ ok: true, agent: null });
+    } finally { server.close(); }
+  });
+
+  it('returns the in-pool Quick Send when present', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send',
+      currentModel: 'ollama-qwen2.5:1.5b',
+      capabilities: ['web'],
+      conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await get(baseUrl);
+      expect(r.body.agent).toMatchObject({
+        id: 'qs-1', name: 'Quick Send',
+        currentModel: 'ollama-qwen2.5:1.5b',
+        capabilities: ['web'],
+        source: 'pool'
+      });
+    } finally { server.close(); }
+  });
+
+  it('falls back to disk index when the pool is empty', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      stateManager: makeFakeStateManagerForRoutes({
+        index: {
+          'qs-disk': {
+            name: 'Quick Send', type: 'user-created',
+            stateFile: 'agents/agent-qs-disk-state.json',
+            conversationsFile: 'agents/agent-qs-disk-conversations.json',
+            model: 'ollama-qwen2.5:1.5b',
+            lastActivity: '2026-05-30T00:00:00Z',
+            status: 'active',
+            capabilities: ['web', 'pdf']
+          }
+        }
+      })
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await get(baseUrl);
+      expect(r.body.agent).toMatchObject({
+        id: 'qs-disk',
+        currentModel: 'ollama-qwen2.5:1.5b',
+        capabilities: ['web', 'pdf'],
+        source: 'disk'
+      });
+    } finally { server.close(); }
+  });
+});
+
+describe('GET /api/chat/quick-send/models', () => {
+  it('returns every known model with a `live` boolean', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      aiService: {
+        ...makeFakeAiService({
+          unresolvableModels: ['anthropic-sonnet'],
+          ollamaModels: ['ollama-qwen2.5:1.5b']
+        }),
+        modelsService: {
+          getModels: () => [
+            { name: 'ollama-qwen2.5:1.5b', provider: 'ollama', displayName: 'Qwen 2.5 1.5B' },
+            { name: 'anthropic-sonnet',     provider: 'anthropic', displayName: 'Claude Sonnet' }
+          ]
+        }
+      }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await http(`${baseUrl}/api/chat/quick-send/models`, {
+        headers: { 'X-OnBuzz-Token': VALID_TOKEN }
+      });
+      expect(r.status).toBe(200);
+      const m = r.body.models;
+      expect(m.find(x => x.name === 'ollama-qwen2.5:1.5b').live).toBe(true);
+      expect(m.find(x => x.name === 'anthropic-sonnet').live).toBe(false);
+      // displayName preserved for the UI
+      expect(m.find(x => x.name === 'ollama-qwen2.5:1.5b').displayName).toBe('Qwen 2.5 1.5B');
+    } finally { server.close(); }
+  });
+
+  it('401 when token is missing', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await http(`${baseUrl}/api/chat/quick-send/models`, { headers: {} });
+      expect(r.status).toBe(401);
+    } finally { server.close(); }
+  });
+});
+
+describe('POST /api/chat/quick-send/model', () => {
+  const send = (baseUrl, body) => http(`${baseUrl}/api/chat/quick-send/model`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-OnBuzz-Token': VALID_TOKEN },
+    body: JSON.stringify(body)
+  });
+
+  it('400 when the model is missing', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, {});
+      expect(r.status).toBe(400);
+      expect(r.body.error).toMatch(/model/);
+    } finally { server.close(); }
+  });
+
+  it('400 with structured error when the model has no provider', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      aiService: makeFakeAiService({ unresolvableModels: ['anthropic-sonnet'] })
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { model: 'anthropic-sonnet' });
+      expect(r.status).toBe(400);
+      expect(r.body.code).toBe('MODEL_PROVIDER_UNAVAILABLE');
+      expect(r.body.suggestion).toBeTruthy();
+    } finally { server.close(); }
+  });
+
+  it('CREATES the Quick Send agent when none exists, using the chosen model', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      aiService: makeFakeAiService()  // everything resolves
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { model: 'ollama-qwen2.5:1.5b' });
+      expect(r.status).toBe(200);
+      expect(r.body.agent).toMatchObject({
+        name: 'Quick Send',
+        currentModel: 'ollama-qwen2.5:1.5b'
+      });
+      const created = orchestrator.__calls.find(c => c.action === 'create_agent');
+      expect(created.payload.model).toBe('ollama-qwen2.5:1.5b');
+      expect(created.payload.name).toBe('Quick Send');
+    } finally { server.close(); }
+  });
+
+  it('UPDATES the Quick Send agent in place when it already exists', async () => {
+    const orchestrator = makeFakeOrchestrator({
+      processRequestImpl: async ({ action, payload }) => {
+        if (action === 'update_agent') {
+          // simulate the pool entry being mutated
+          return { success: true };
+        }
+        return { success: true };
+      }
+    });
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send',
+      currentModel: 'old-model', preferredModel: 'old-model',
+      capabilities: ['web'], conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { model: 'new-model' });
+      expect(r.status).toBe(200);
+      const updated = orchestrator.__calls.find(c => c.action === 'update_agent');
+      expect(updated).toBeTruthy();
+      expect(updated.payload).toMatchObject({
+        agentId: 'qs-1',
+        updates: { preferredModel: 'new-model', currentModel: 'new-model' }
+      });
+      // No CREATE_AGENT call ever fires when the agent exists.
+      const created = orchestrator.__calls.find(c => c.action === 'create_agent');
+      expect(created).toBeUndefined();
+    } finally { server.close(); }
+  });
+
+  it('is idempotent: re-posting the same model does not call UPDATE_AGENT', async () => {
+    const orchestrator = makeFakeOrchestrator();
+    orchestrator.__addAgent({
+      id: 'qs-1', name: 'Quick Send',
+      currentModel: 'same-model', preferredModel: 'same-model',
+      capabilities: [], conversations: { full: { messages: [] } }
+    });
+    const { server, baseUrl } = await startApp({ orchestrator });
+    try {
+      const r = await send(baseUrl, { model: 'same-model' });
+      expect(r.status).toBe(200);
+      const calls = orchestrator.__calls.map(c => c.action);
+      expect(calls).not.toContain('update_agent');
+      expect(calls).not.toContain('create_agent');
+    } finally { server.close(); }
+  });
+});

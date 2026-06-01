@@ -713,6 +713,263 @@ export function registerQuickSendRoutes(app, deps = {}) {
       });
     }
   });
+
+  // ── GET /api/chat/quick-send/agent ────────────────────────────
+  // Returns the Quick Send agent's current id + model + capabilities,
+  // or { agent: null } if none exists yet. Disk-aware: looks at the
+  // pool first, falls back to the persisted index so the side panel
+  // can show the model on a cold-pool boot. Read-only.
+  app.get('/api/chat/quick-send/agent', async (req, res) => {
+    try {
+      const presented = req.get('X-OnBuzz-Token');
+      if (!(await verifyToken(presented))) {
+        return res.status(STATUS.UNAUTHORIZED).json({
+          ok: false,
+          error: 'Invalid or missing X-OnBuzz-Token header'
+        });
+      }
+      const orchestrator = getOrchestrator();
+      if (!orchestrator) {
+        return res.status(STATUS.SERVICE_UNAVAILABLE).json({
+          ok: false,
+          error: 'OnBuzz orchestrator is not attached yet'
+        });
+      }
+
+      // Pool first.
+      let pool = [];
+      try {
+        pool = await orchestrator.agentPool.listActiveAgents();
+      } catch (_) { /* fall through to disk */ }
+      let agent = (pool || []).find((a) => a && a.name === QUICK_SEND_AGENT_NAME);
+      let source = agent ? 'pool' : null;
+
+      // Disk fallback: when the pool is empty (no UI session yet) we
+      // still want to surface the persisted Quick Send so the picker
+      // chip can show the current model.
+      if (!agent && orchestrator.stateManager?.loadAgentIndex) {
+        try {
+          const index = (await orchestrator.stateManager.loadAgentIndex(process.cwd())) || {};
+          const entry = Object.entries(index)
+            .find(([id, v]) => id && id !== 'undefined' && v && v.name === QUICK_SEND_AGENT_NAME);
+          if (entry) {
+            const [id, v] = entry;
+            agent = {
+              id,
+              name: v.name,
+              currentModel: v.model || null,
+              preferredModel: v.model || null,
+              capabilities: Array.isArray(v.capabilities) ? v.capabilities : [],
+              status: v.status || null
+            };
+            source = 'disk';
+          }
+        } catch (_) { /* best-effort */ }
+      }
+
+      if (!agent) {
+        return res.json({ ok: true, agent: null });
+      }
+
+      return res.json({
+        ok: true,
+        agent: {
+          id: agent.id,
+          name: agent.name,
+          currentModel: agent.currentModel || agent.preferredModel || null,
+          capabilities: Array.isArray(agent.capabilities) ? agent.capabilities : [],
+          status: agent.status || null,
+          source
+        }
+      });
+    } catch (error) {
+      try { logger.error('Quick-send /agent error', { error: error.message }); } catch (_) {}
+      return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
+        ok: false, error: error.message
+      });
+    }
+  });
+
+  // ── GET /api/chat/quick-send/models ───────────────────────────
+  // Returns every model the system knows about, with a `live`
+  // boolean indicating whether its provider is currently usable.
+  // Side panel groups the response by provider and disables rows
+  // whose `live` is false. Token-gated.
+  app.get('/api/chat/quick-send/models', async (req, res) => {
+    try {
+      const presented = req.get('X-OnBuzz-Token');
+      if (!(await verifyToken(presented))) {
+        return res.status(STATUS.UNAUTHORIZED).json({
+          ok: false,
+          error: 'Invalid or missing X-OnBuzz-Token header'
+        });
+      }
+      const orchestrator = getOrchestrator();
+      if (!orchestrator) {
+        return res.status(STATUS.SERVICE_UNAVAILABLE).json({
+          ok: false,
+          error: 'OnBuzz orchestrator is not attached yet'
+        });
+      }
+
+      const aiService = orchestrator.aiService;
+      const models = aiService?.modelsService?.getModels?.() || [];
+      // For each model, run the same preflight resolve the dispatch
+      // path uses. A model is `live` only if its provider is wired
+      // up — that's the only signal that picking it will work.
+      const out = [];
+      for (const m of models) {
+        if (!m || !m.name) continue;
+        let live = false;
+        try {
+          if (aiService?.getProviderRegistry) {
+            aiService.getProviderRegistry().resolve({ model: m.name });
+            live = true;
+          }
+        } catch (_) { live = false; }
+        out.push({
+          name:        m.name,
+          provider:    m.provider || null,
+          displayName: m.displayName || m.name,
+          live
+        });
+      }
+
+      return res.json({ ok: true, models: out });
+    } catch (error) {
+      try { logger.error('Quick-send /models error', { error: error.message }); } catch (_) {}
+      return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
+        ok: false, error: error.message
+      });
+    }
+  });
+
+  // ── POST /api/chat/quick-send/model ───────────────────────────
+  // Body: { model: string }
+  //
+  // Pre-flights the model. If the model resolves and the Quick Send
+  // agent doesn't yet exist, creates it with the seed + chosen model.
+  // If it already exists, dispatches UPDATE_AGENT to swap its
+  // preferredModel / currentModel. Token-gated.
+  //
+  // 400 if the model is missing/invalid; the structured pre-flight
+  // payload is returned in the body (code + message + suggestion)
+  // so the side panel can render a useful banner.
+  app.post('/api/chat/quick-send/model', async (req, res) => {
+    try {
+      const presented = req.get('X-OnBuzz-Token');
+      if (!(await verifyToken(presented))) {
+        return res.status(STATUS.UNAUTHORIZED).json({
+          ok: false,
+          error: 'Invalid or missing X-OnBuzz-Token header'
+        });
+      }
+      const body = req.body || {};
+      const model = body.model;
+      if (typeof model !== 'string' || model.trim().length === 0) {
+        return res.status(STATUS.BAD_REQUEST).json({
+          ok: false,
+          error: 'Field "model" is required and must be a non-empty string'
+        });
+      }
+      const orchestrator = getOrchestrator();
+      if (!orchestrator) {
+        return res.status(STATUS.SERVICE_UNAVAILABLE).json({
+          ok: false,
+          error: 'OnBuzz orchestrator is not attached yet'
+        });
+      }
+
+      const preflight = preflightCheckModel(orchestrator.aiService, model);
+      if (!preflight.ok) {
+        return res.status(STATUS.BAD_REQUEST).json({
+          ok: false,
+          code: preflight.code,
+          message: preflight.message,
+          suggestion: preflight.suggestion,
+          error: preflight.message,
+          localModelsAvailable: hasLocalOllamaModels(orchestrator.aiService)
+        });
+      }
+
+      const sessionId = EXTENSION_SESSION_ID;
+      const projectDir = process.cwd();
+
+      // Is the Quick Send agent already in the pool?
+      let quickSendAgent = null;
+      try {
+        const pool = await orchestrator.agentPool.listActiveAgents();
+        quickSendAgent = pool.find((a) => a.name === QUICK_SEND_AGENT_NAME) || null;
+      } catch (_) { /* pool unreachable — fall through to create */ }
+
+      if (!quickSendAgent) {
+        // Either no Quick Send anywhere, or the canonical is disk-only
+        // and we can't hydrate it cleanly (see quickSendCleanup notes).
+        // Either way, just create a fresh one with the user's pick.
+        // If a stale disk entry exists with this same name, the
+        // cleanup helper will remove it on the next POST.
+        logger.info('Quick Send: creating agent from picker', { model });
+        const createResp = await orchestrator.processRequest({
+          interface: INTERFACE_TYPES?.WEB || 'web',
+          sessionId,
+          action: ORCHESTRATOR_ACTIONS?.CREATE_AGENT || 'create_agent',
+          payload: buildQuickSendAgentSeed(model),
+          projectDir
+        });
+        if (!createResp?.success) {
+          return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
+            ok: false,
+            error: `Could not create Quick Send agent: ${createResp?.error || 'unknown error'}`
+          });
+        }
+        quickSendAgent = createResp.data;
+      } else if (
+        quickSendAgent.currentModel !== model
+        || quickSendAgent.preferredModel !== model
+      ) {
+        logger.info('Quick Send: switching model from picker', {
+          agentId: quickSendAgent.id,
+          from: quickSendAgent.currentModel,
+          to: model
+        });
+        const updateResp = await orchestrator.processRequest({
+          interface: INTERFACE_TYPES?.WEB || 'web',
+          sessionId,
+          action: ORCHESTRATOR_ACTIONS?.UPDATE_AGENT || 'update_agent',
+          payload: {
+            agentId: quickSendAgent.id,
+            updates: { preferredModel: model, currentModel: model }
+          },
+          projectDir
+        });
+        if (!updateResp?.success) {
+          return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
+            ok: false,
+            error: `Could not switch model: ${updateResp?.error || 'unknown error'}`
+          });
+        }
+        // Refresh in-memory view so the response carries the new model.
+        try {
+          quickSendAgent = await orchestrator.agentPool.getAgent(quickSendAgent.id) || quickSendAgent;
+        } catch (_) { /* keep the old reference */ }
+      }
+
+      return res.json({
+        ok: true,
+        agent: {
+          id: quickSendAgent.id,
+          name: quickSendAgent.name,
+          currentModel: quickSendAgent.currentModel || quickSendAgent.preferredModel || model,
+          capabilities: Array.isArray(quickSendAgent.capabilities) ? quickSendAgent.capabilities : []
+        }
+      });
+    } catch (error) {
+      try { logger.error('Quick-send /model error', { error: error.message }); } catch (_) {}
+      return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
+        ok: false, error: error.message
+      });
+    }
+  });
 }
 
 export default {

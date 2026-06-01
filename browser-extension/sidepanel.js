@@ -38,7 +38,12 @@ const els = {
   langPopover:     document.getElementById('langPopover'),
   sendHint:        document.getElementById('sendHint'),
   selectionPill:   document.getElementById('selectionPill'),
-  settingsBtn:     document.getElementById('settingsBtn')
+  settingsBtn:     document.getElementById('settingsBtn'),
+  modelBtn:           document.getElementById('modelBtn'),
+  modelChipLabel:     document.getElementById('modelChipLabel'),
+  modelPopover:       document.getElementById('modelPopover'),
+  modelPopoverBody:   document.getElementById('modelPopoverBody'),
+  modelPopoverClose:  document.getElementById('modelPopoverClose')
 };
 
 // Mascot URL — used by the bouncing assistant avatar in thinking bubbles.
@@ -785,8 +790,257 @@ chrome.runtime.onMessage.addListener(async (msg) => {
   }
 });
 
+// ── Model picker ───────────────────────────────────────────────
+// The picker reads three new backend endpoints:
+//   GET  /api/chat/quick-send/agent   — current Quick Send agent (or
+//                                       null if none exists yet)
+//   GET  /api/chat/quick-send/models  — every model, with `live` per
+//                                       model based on provider state
+//   POST /api/chat/quick-send/model   — { model } → create or update
+//
+// State held here intentionally local (currentModel, modelsCache);
+// the side panel doesn't need to coordinate with handleSend's
+// send/poll state.
+let currentModel = null;
+let modelsCache = null;
+let pickerSendInflight = false;
+
+function setModelChipLabel(text) {
+  if (!els.modelChipLabel) return;
+  els.modelChipLabel.textContent = text || 'Pick a model';
+}
+
+function openModelPopover() {
+  if (!els.modelPopover) return;
+  els.modelPopover.classList.remove('hidden');
+  els.modelBtn.setAttribute('aria-expanded', 'true');
+}
+function closeModelPopover() {
+  if (!els.modelPopover) return;
+  els.modelPopover.classList.add('hidden');
+  els.modelBtn.setAttribute('aria-expanded', 'false');
+}
+
+async function fetchAgentState({ serverUrl, token }) {
+  const res = await fetch(`${serverUrl}/api/chat/quick-send/agent`, {
+    headers: { 'X-OnBuzz-Token': token }
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = new Error(body?.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return body?.agent || null;
+}
+
+async function fetchModels({ serverUrl, token, force = false }) {
+  if (modelsCache && !force) return modelsCache;
+  const res = await fetch(`${serverUrl}/api/chat/quick-send/models`, {
+    headers: { 'X-OnBuzz-Token': token }
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = new Error(body?.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  modelsCache = Array.isArray(body?.models) ? body.models : [];
+  return modelsCache;
+}
+
+async function postModelChange({ serverUrl, token, model }) {
+  const res = await fetch(`${serverUrl}/api/chat/quick-send/model`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-OnBuzz-Token': token },
+    body: JSON.stringify({ model })
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = new Error(body?.message || body?.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.serverMessage = body?.message || body?.error || null;
+    err.suggestion = body?.suggestion || null;
+    err.code = body?.code || null;
+    err.structured = Boolean(body?.message || body?.code);
+    throw err;
+  }
+  return body?.agent || null;
+}
+
+function renderModelPopover(models) {
+  if (!els.modelPopoverBody) return;
+  if (!Array.isArray(models) || models.length === 0) {
+    els.modelPopoverBody.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'model-popover-empty';
+    empty.textContent = 'No models found. Configure a provider in OnBuzz Settings.';
+    els.modelPopoverBody.appendChild(empty);
+    return;
+  }
+
+  // Group by provider, keep stable provider order from the first
+  // occurrence of each provider in the input.
+  const groups = new Map();
+  for (const m of models) {
+    const key = m.provider || 'other';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(m);
+  }
+
+  els.modelPopoverBody.innerHTML = '';
+  for (const [provider, list] of groups) {
+    const group = document.createElement('div');
+    group.className = 'model-provider-group';
+    const label = document.createElement('div');
+    label.className = 'model-provider-label';
+    label.textContent = provider;
+    group.appendChild(label);
+
+    for (const m of list) {
+      const opt = document.createElement('button');
+      opt.type = 'button';
+      opt.className = 'model-option';
+      if (!m.live) opt.classList.add('is-unavailable');
+      if (currentModel && m.name === currentModel) opt.classList.add('is-active');
+      opt.dataset.model = m.name;
+
+      const name = document.createElement('span');
+      name.className = 'model-option-name';
+      name.textContent = m.displayName || m.name;
+      opt.appendChild(name);
+
+      const flag = document.createElement('span');
+      flag.className = 'model-option-flag';
+      if (currentModel && m.name === currentModel) {
+        flag.textContent = 'active';
+      } else if (!m.live) {
+        flag.textContent = 'unavailable';
+      } else {
+        flag.textContent = '';
+      }
+      opt.appendChild(flag);
+      group.appendChild(opt);
+    }
+    els.modelPopoverBody.appendChild(group);
+  }
+}
+
+async function onModelOptionClick(e) {
+  const opt = e.target.closest('button.model-option');
+  if (!opt) return;
+  if (opt.classList.contains('is-unavailable')) return;
+  if (pickerSendInflight) return;
+
+  const model = opt.dataset.model;
+  if (!model || model === currentModel) {
+    closeModelPopover();
+    return;
+  }
+
+  pickerSendInflight = true;
+  const { serverUrl, token } = await readSettings();
+  if (!token) {
+    showError('Extension token is not set. Open Settings and paste the token from OnBuzz.');
+    pickerSendInflight = false;
+    return;
+  }
+  try {
+    const agent = await postModelChange({ serverUrl, token, model });
+    currentModel = agent?.currentModel || model;
+    setModelChipLabel(currentModel);
+    closeModelPopover();
+    clearError();
+    els.sendHint.textContent = `Quick Send now uses ${currentModel}.`;
+  } catch (err) {
+    if (err.structured && (err.serverMessage || err.suggestion)) {
+      showError('', {
+        title: (typeof titleForErrorCode === 'function' && titleForErrorCode(err.code))
+               || err.serverMessage
+               || "Couldn't switch model",
+        body: [err.serverMessage, err.suggestion].filter(Boolean).join(' ').trim()
+              || 'Open OnBuzz Settings to fix the issue.'
+      });
+    } else if (err.message && /Failed to fetch|NetworkError/i.test(err.message)) {
+      showError('Could not reach OnBuzz. Make sure the server is running.');
+    } else {
+      showError(err.message || "Couldn't switch model.");
+    }
+  } finally {
+    pickerSendInflight = false;
+  }
+}
+
+async function refreshPickerState({ silent = true } = {}) {
+  const { serverUrl, token } = await readSettings();
+  if (!token) {
+    setModelChipLabel('Configure token');
+    return;
+  }
+  try {
+    const agent = await fetchAgentState({ serverUrl, token });
+    currentModel = agent?.currentModel || null;
+    setModelChipLabel(currentModel || 'Pick a model');
+  } catch (err) {
+    if (!silent) showError(err.message);
+    setModelChipLabel('Pick a model');
+  }
+}
+
+if (els.modelBtn) {
+  els.modelBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!els.modelPopover.classList.contains('hidden')) {
+      closeModelPopover();
+      return;
+    }
+    const { serverUrl, token } = await readSettings();
+    if (!token) {
+      showError('Extension token is not set. Open Settings and paste the token from OnBuzz.');
+      return;
+    }
+    openModelPopover();
+    try {
+      const models = await fetchModels({ serverUrl, token, force: true });
+      // Also refresh current model in case another panel changed it.
+      try {
+        const agent = await fetchAgentState({ serverUrl, token });
+        currentModel = agent?.currentModel || null;
+        setModelChipLabel(currentModel || 'Pick a model');
+      } catch (_) { /* keep cached label */ }
+      renderModelPopover(models);
+    } catch (err) {
+      els.modelPopoverBody.innerHTML = '';
+      const node = document.createElement('div');
+      node.className = 'model-popover-empty';
+      node.textContent = err.message || "Couldn't load models.";
+      els.modelPopoverBody.appendChild(node);
+    }
+  });
+}
+if (els.modelPopover) {
+  els.modelPopover.addEventListener('click', onModelOptionClick);
+}
+if (els.modelPopoverClose) {
+  els.modelPopoverClose.addEventListener('click', closeModelPopover);
+}
+document.addEventListener('click', (e) => {
+  if (!els.modelPopover || els.modelPopover.classList.contains('hidden')) return;
+  if (e.target.closest('#modelBtn') || e.target.closest('#modelPopover')) return;
+  closeModelPopover();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && els.modelPopover && !els.modelPopover.classList.contains('hidden')) {
+    closeModelPopover();
+    els.modelBtn?.focus();
+  }
+});
+
 // Initial render on panel open.
 (async function init() {
   const staged = await readStagedSelection();
   renderSelection(staged);
+  // Best-effort: fetch the current Quick Send model so the chip
+  // doesn't say "Pick a model" when an agent already exists.
+  refreshPickerState({ silent: true });
 })();

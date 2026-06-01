@@ -679,3 +679,105 @@ body {
 }
 .text-btn:hover { background: var(--surface-alt); color: var(--text); }
 .text-btn svg { width: 14px; height: 14px; }
+
+/* ── Model picker chip + popover ───────────────────────────────── */
+/* Lives in the app header, just left of the settings cog. Click
+   opens a popover with a provider-grouped model list. Disabled
+   rows are providers without a working key/connection. */
+.model-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+}
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  border-radius: 999px;
+  font: 500 12px/1.2 inherit;
+  max-width: 160px;
+  cursor: pointer;
+}
+.model-chip:hover { border-color: var(--brand); }
+.model-chip svg { width: 14px; height: 14px; flex: none; color: var(--brand); }
+.model-chip-label {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.model-chip[aria-expanded="true"] { border-color: var(--brand); }
+
+.model-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 280px;
+  max-height: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.18);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+.model-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font: 600 13px/1.2 inherit;
+}
+.model-popover-body {
+  overflow: auto;
+  padding: 4px 0;
+}
+.model-popover-empty {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+.model-provider-group {
+  padding: 4px 0;
+}
+.model-provider-label {
+  padding: 6px 12px 4px;
+  font: 600 11px/1.2 inherit;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  font: 400 13px/1.2 inherit;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.model-option:hover { background: var(--surface-alt); }
+.model-option .model-option-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-option .model-option-flag {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+.model-option.is-active { background: var(--brand-soft); }
+.model-option.is-active .model-option-flag { color: var(--brand); }
+.model-option.is-unavailable {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.model-option.is-unavailable:hover { background: transparent; }

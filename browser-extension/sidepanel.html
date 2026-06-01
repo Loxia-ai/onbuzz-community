@@ -23,6 +23,31 @@
       </div>
       <div id="appHeaderSub" class="app-header-sub">No selection yet</div>
     </div>
+    <div class="model-wrap">
+      <button
+        id="modelBtn"
+        class="model-chip"
+        type="button"
+        title="Choose the model Quick Send uses"
+        aria-label="Choose model"
+        aria-haspopup="listbox"
+        aria-expanded="false"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 L4 7 v10 l8 5 8-5 V7 z"/><path d="M4 7 l8 5 8-5"/><path d="M12 12 V22"/></svg>
+        <span id="modelChipLabel" class="model-chip-label">Pick a model</span>
+      </button>
+      <div id="modelPopover" class="model-popover hidden" role="dialog" aria-label="Model picker">
+        <div class="model-popover-header">
+          <span>Choose a model</span>
+          <button id="modelPopoverClose" class="text-btn" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <div id="modelPopoverBody" class="model-popover-body" aria-live="polite">
+          <div class="model-popover-empty">Loading models…</div>
+        </div>
+      </div>
+    </div>
     <button id="settingsBtn" class="icon-btn" type="button" title="Open extension options" aria-label="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.6a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9.2A1.7 1.7 0 0 0 10.23 2.84V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9.2a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg>
     </button>
