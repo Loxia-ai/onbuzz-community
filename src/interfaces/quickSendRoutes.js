@@ -571,7 +571,7 @@ export function registerQuickSendRoutes(app, deps = {}) {
         usedFallbackModel
       });
     } catch (error) {
-      try { logger.error('Quick-send API error', { error: error.message }); } catch (_) {}
+      try { logger.error('Quick-send API error', { error: error.message }); } catch (_) { /* logger may be a stub in tests */ }
       return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
         ok: false,
         error: error.message
@@ -706,7 +706,7 @@ export function registerQuickSendRoutes(app, deps = {}) {
         localModelsAvailable: hasLocalOllamaModels(orchestrator.aiService)
       });
     } catch (error) {
-      try { logger.error('Quick-send poll API error', { error: error.message }); } catch (_) {}
+      try { logger.error('Quick-send poll API error', { error: error.message }); } catch (_) { /* logger may be a stub in tests */ }
       return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
         ok: false,
         error: error.message
@@ -783,7 +783,7 @@ export function registerQuickSendRoutes(app, deps = {}) {
         }
       });
     } catch (error) {
-      try { logger.error('Quick-send /agent error', { error: error.message }); } catch (_) {}
+      try { logger.error('Quick-send /agent error', { error: error.message }); } catch (_) { /* logger may be a stub in tests */ }
       return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
         ok: false, error: error.message
       });
@@ -837,7 +837,7 @@ export function registerQuickSendRoutes(app, deps = {}) {
 
       return res.json({ ok: true, models: out });
     } catch (error) {
-      try { logger.error('Quick-send /models error', { error: error.message }); } catch (_) {}
+      try { logger.error('Quick-send /models error', { error: error.message }); } catch (_) { /* logger may be a stub in tests */ }
       return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
         ok: false, error: error.message
       });
@@ -964,7 +964,7 @@ export function registerQuickSendRoutes(app, deps = {}) {
         }
       });
     } catch (error) {
-      try { logger.error('Quick-send /model error', { error: error.message }); } catch (_) {}
+      try { logger.error('Quick-send /model error', { error: error.message }); } catch (_) { /* logger may be a stub in tests */ }
       return res.status(STATUS.INTERNAL_SERVER_ERROR).json({
         ok: false, error: error.message
       });
